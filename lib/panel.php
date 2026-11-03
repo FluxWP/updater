@@ -12,8 +12,8 @@ final class Panel {
 	const COOKIE = 'flxu_admin';
 	const TTL    = 43200; // 12 saat
 
-	/** Siteye her zaman açık güncelleyici paketleri: Flux Setup (1.0.0'dan beri güncelleyiciyi içerir) ve eski Flux Updater. */
-	const UPDATER_SLUGS = array( 'flx-setup', 'flx-updater' );
+	/** Siteye her zaman açık güncelleyici paketi: Flux Setup (güncelleyiciyi içerir; ayrı Flux Updater paketi artık yok). */
+	const UPDATER_SLUGS = array( 'flx-setup' );
 
 	/** @var Server */
 	private $server;
@@ -382,7 +382,7 @@ final class Panel {
 				$out[] = $slug;
 			}
 		}
-		// Güncelleyici paketi (Flux Setup; eski adı Flux Updater) her seçime eklenir.
+		// Güncelleyici paketi (Flux Setup) her seçime eklenir.
 		foreach ( self::UPDATER_SLUGS as $u ) {
 			if ( ! in_array( $u, $out, true ) ) {
 				$out[] = $u;
