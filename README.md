@@ -85,7 +85,7 @@ IP addresses are not written to the statistics. `data/access.log` keeps the IP o
 ### App updates
 
 - **Mobile/desktop app:** releases tagged `v<version>` in the app repository (panel › GitHub › App repository). File names decide the platform: `*windows*`, `*macos*`, `*.apk`, `*ios*`.
-- **FluxWP desktop:** `fluxapp-v<version>` releases in the package repository (or `FLX_UPDATE_FLUXAPP_REPO`). File names carry the brand: `fluxapp-<brand>-<version>-macos-universal.dmg`, `.app.tar.gz`, `.app.tar.gz.sig` (uploaded by `fluxapp-desktop.yml` in FluxWP/FluxWP). The app asks the `tauri` endpoint and installs signed bundles in the background.
+- **FluxWP desktop:** `fluxapp-v<version>` releases in the package repository (or `FLX_UPDATE_FLUXAPP_REPO`). File names carry the brand: `fluxapp-<brand>-<version>-macos-universal.dmg`, `.app.tar.gz`, `.app.tar.gz.sig` and `fluxapp-<brand>-<version>-windows-x64-setup.exe`, `-setup.exe.sig`, `.msi` (uploaded by `fluxapp-desktop.yml` in FluxWP/FluxWP). The app asks the `tauri` endpoint and installs signed bundles in the background.
 
 ## Endpoints
 
@@ -97,8 +97,9 @@ IP addresses are not written to the statistics. `data/access.log` keeps the IP o
 | `GET /v1/download/<slug>/latest.zip` | latest stable version the caller may see (for website download buttons); public without a key, private still needs a site key unless the package is ticked under GitHub › **Public packages** (e.g. `flx-setup` for the fluxwp.com download button) |
 | `GET /v1/app/latest?channel=stable\|beta` | public; latest app version and platform files |
 | `GET /v1/app/download/<tag>/<file>` | public; 302 to GitHub's short-lived download URL |
-| `GET /v1/fluxapp/<brand>/latest?channel=stable\|beta` | public; latest FluxWP desktop (dmg + update bundle) |
-| `GET /v1/fluxapp/<brand>/tauri/<target>/<arch>/<version>` | public; Tauri updater format, 204 if there is no newer version |
+| `GET /v1/fluxapp/<brand>/latest?channel=stable\|beta` | public; latest FluxWP desktop (dmg, setup.exe, msi + update bundle) |
+| `GET /v1/fluxapp/<brand>/download/<macos\|windows\|windows-msi>` | public; stable link, 302 to the latest installer (for download buttons) |
+| `GET /v1/fluxapp/<brand>/tauri/<target>/<arch>/<version>` | public; Tauri updater format (`darwin` → `.app.tar.gz`, `windows` → `setup.exe`), 204 if there is no newer version |
 | `GET /v1/fluxapp/download/<tag>/<file>` | public; 302 to the GitHub download URL |
 | `POST /v1/webhook` | signed with `X-Hub-Signature-256`; clears the release cache |
 | `GET /admin` | admin panel (`/status` redirects here) |

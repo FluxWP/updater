@@ -77,7 +77,7 @@ Güncellemek için yeni zip'i üstüne açın. Ayarlar zip'te olmayan `data/sett
 ### Uygulama güncellemeleri
 
 - **Mobil/masaüstü uygulama:** uygulama deposundaki `v<sürüm>` release'leri (panel › GitHub › Uygulama deposu). Dosya adı platformu belirler: `*windows*`, `*macos*`, `*.apk`, `*ios*`.
-- **FluxWP masaüstü:** paket deposundaki (ya da `FLX_UPDATE_FLUXAPP_REPO`) `fluxapp-v<sürüm>` release'leri. Dosya adı markayı taşır: `fluxapp-<marka>-<sürüm>-macos-universal.dmg`, `.app.tar.gz`, `.app.tar.gz.sig` (FluxWP/FluxWP `fluxapp-desktop.yml` yükler). Uygulama `tauri` ucunu sorar, imzalı paketi arka planda kurar.
+- **FluxWP masaüstü:** paket deposundaki (ya da `FLX_UPDATE_FLUXAPP_REPO`) `fluxapp-v<sürüm>` release'leri. Dosya adı markayı taşır: `fluxapp-<marka>-<sürüm>-macos-universal.dmg`, `.app.tar.gz`, `.app.tar.gz.sig` ve `fluxapp-<marka>-<sürüm>-windows-x64-setup.exe`, `-setup.exe.sig`, `.msi` (FluxWP/FluxWP `fluxapp-desktop.yml` yükler). Uygulama `tauri` ucunu sorar, imzalı paketi arka planda kurar.
 
 ### Gizlilik: site ne gönderir
 
@@ -96,8 +96,9 @@ IP adresi istatistiklere yazılmaz. `data/access.log` IP'yi yalnız hatalı anah
 | `GET /v1/download/<slug>/<sürüm>.zip` | public paket anahtarsız, private paket site anahtarıyla; `data/zips`'te saklanır |
 | `GET /v1/app/latest?channel=stable\|beta` | herkese açık; uygulamanın son sürümü ve platform dosyaları |
 | `GET /v1/app/download/<tag>/<dosya>` | herkese açık; GitHub'ın kısa ömürlü indirme adresine 302 |
-| `GET /v1/fluxapp/<marka>/latest?channel=stable\|beta` | herkese açık; FluxWP masaüstü son sürümü (dmg + güncelleme paketi) |
-| `GET /v1/fluxapp/<marka>/tauri/<target>/<arch>/<sürüm>` | herkese açık; Tauri updater biçimi, yeni sürüm yoksa 204 |
+| `GET /v1/fluxapp/<marka>/latest?channel=stable\|beta` | herkese açık; FluxWP masaüstü son sürümü (dmg, setup.exe, msi + güncelleme paketi) |
+| `GET /v1/fluxapp/<marka>/download/<macos\|windows\|windows-msi>` | herkese açık; kalıcı bağlantı, son kurulum dosyasına 302 (indirme düğmeleri için) |
+| `GET /v1/fluxapp/<marka>/tauri/<target>/<arch>/<sürüm>` | herkese açık; Tauri updater biçimi (`darwin` → `.app.tar.gz`, `windows` → `setup.exe`), yeni sürüm yoksa 204 |
 | `GET /v1/fluxapp/download/<tag>/<dosya>` | herkese açık; GitHub indirme adresine 302 |
 | `POST /v1/webhook` | `X-Hub-Signature-256` imzalı; release önbelleğini boşaltır |
 | `GET /admin` | yönetim paneli (`/status` buraya yönlenir) |
