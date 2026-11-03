@@ -98,7 +98,7 @@ final class Panel {
 			'updated' => array( __( 'Site güncellendi.' ), 'ok' ),
 			'on'      => array( __( 'Anahtar aktif: site izinli private paketleri yeniden alır.' ), 'ok' ),
 			'off'     => array( __( 'Anahtar pasif: site yalnız public paketleri görür.' ), 'ok' ),
-			'noclient' => array( __( 'Bu siteye anahtar verilemedi: kayıt yok ya da site Flux Updater 1.7.0\'dan eski.' ), 'err' ),
+			'noclient' => array( __( 'Bu siteye anahtar verilemedi: kayıt yok ya da sitede Flux Setup (veya Flux Updater 1.7.0+) yok.' ), 'err' ),
 			'flushed' => array( __( 'Paket listesi GitHub\'dan yeniden okundu.' ), 'ok' ),
 			'pw'      => array( __( 'Parola değiştirildi.' ), 'ok' ),
 			'webhook' => array( __( 'Webhook secret üretildi. GitHub\'a eklemeyi unutmayın.' ), 'ok' ),
@@ -802,11 +802,11 @@ var L = <?php echo json_encode( array(
 			<div class="card" style="border-color:#e6cf7a">
 				<h2><?php echo __( 'Yeni site anahtarı:' ); ?> <?php echo $e( $args['new_name'] ); ?></h2>
 				<?php if ( ! empty( $args['issued'] ) ) : ?>
-				<p><?php echo $e( _f( 'Site bu anahtarı bir sonraki güncelleme kontrolünde kendiliğinden alır (%d gün içinde; hemen almak için sitede Ayarlar › Flux Updater › "Bağlantıyı test et"). Elle girmeniz gerekmez.', Server::CLAIM_DAYS ) ); ?></p>
+				<p><?php echo $e( _f( 'Site bu anahtarı bir sonraki güncelleme kontrolünde kendiliğinden alır (%d gün içinde; hemen almak için sitede Setup › Ayarlar › "Bağlantıyı test et"). Elle girmeniz gerekmez.', Server::CLAIM_DAYS ) ); ?></p>
 				<p><b><?php echo __( 'Şimdi erişimini seçin:' ); ?></b> <a href="#<?php echo $e( self::key_anchor( (string) $args['issued'] ) ); ?>"><?php echo __( 'Anahtarlı siteler' ); ?> › <?php echo $e( $args['new_name'] ); ?></a>. <?php echo __( 'Seçene kadar site yalnız public paketleri görür.' ); ?></p>
 				<details><summary class="small"><?php echo __( 'Anahtarı elle girmek için göster' ); ?></summary>
 				<?php endif; ?>
-				<p><?php echo __( '<b>Bu anahtar bir daha gösterilmez.</b> Şimdi kopyalayın ve sitenin <b>WordPress › Ayarlar › Flux Updater</b> ekranında <i>Site anahtarı</i> alanına yapıştırın. Sunucu adresi:' ); ?></p>
+				<p><?php echo __( '<b>Bu anahtar bir daha gösterilmez.</b> Şimdi kopyalayın ve sitenin <b>WordPress › Setup › Ayarlar</b> ekranında <i>Site anahtarı</i> alanına yapıştırın. Sunucu adresi:' ); ?></p>
 				<pre><?php echo $e( $this->server->base_url() ); ?></pre>
 				<p><?php echo __( 'Site anahtarı:' ); ?></p>
 				<pre class="key" id="newkey"><?php echo $e( $key ); ?></pre>
@@ -1268,7 +1268,7 @@ var L = <?php echo json_encode( array(
 						<td><b><?php echo $e( '' !== $host ? $host . $path : 'Adres bildirmedi' ); ?></b><?php if ( ! empty( $c['name'] ) ) : ?><br><span class="small muted"><?php echo $e( $c['name'] ); ?></span><?php endif; ?></td>
 						<td><?php echo $this->client_access( (string) $cid, $c, $pending ); ?></td>
 						<td class="small"><?php echo ! empty( $c['cc'] ) ? '<b class="cc">' . $e( $c['cc'] ) . '</b>' . $e( self::country_name( (string) $c['cc'] ) ) : '<span class="muted">—</span>'; ?></td>
-						<td class="small muted"><?php echo $e( trim( ( $c['wp'] ? 'WP ' . $c['wp'] : '' ) . ( $c['php'] ? ' · PHP ' . $c['php'] : '' ) ) ); ?><?php if ( ! empty( $c['upd'] ) ) : ?><br>Updater <?php echo $e( $c['upd'] ); ?><?php endif; ?></td>
+						<td class="small muted"><?php echo $e( trim( ( $c['wp'] ? 'WP ' . $c['wp'] : '' ) . ( $c['php'] ? ' · PHP ' . $c['php'] : '' ) ) ); ?><?php if ( ! empty( $c['upd'] ) ) : ?><br><?php echo isset( $c['pk']['flx-setup'] ) ? 'Flux Setup' : 'Flux Updater'; ?> <?php echo $e( $c['upd'] ); ?><?php endif; ?></td>
 						<td class="n" title="<?php echo $e( implode( ', ', array_keys( (array) ( $c['pk'] ?? array() ) ) ) ); ?>"><?php echo self::n( count( (array) ( $c['pk'] ?? array() ) ) ); ?></td>
 						<td class="n"><?php echo self::n( $c['n'] ?? 0 ); ?></td>
 						<td class="small"><?php echo $e( self::ago( (int) ( $c['last'] ?? 0 ) ) ); ?></td>
@@ -1279,7 +1279,7 @@ var L = <?php echo json_encode( array(
 				<p><button type="button" class="btn sec sm" onclick="document.querySelectorAll('#clients tr.more').forEach(function(r){r.hidden=false});this.remove()"><?php echo $e( _f( 'Tümünü göster (%s)', self::n( count( $S['clients'] ) ) ) ); ?></button></p>
 			<?php endif; ?>
 			<?php endif; ?>
-			<p class="small muted"><?php echo __( 'IP saklanmaz. Ülke, sitenin WordPress saat diliminden bulunur (Cloudflare arkasındaysa CF-IPCountry). Flux Updater 1.6.1\'den eskiler saat dilimi göndermez.' ); ?></p>
+			<p class="small muted"><?php echo __( 'IP saklanmaz. Ülke, sitenin WordPress saat diliminden bulunur (Cloudflare arkasındaysa CF-IPCountry). Flux Updater 1.6.1\'den eskiler saat dilimi göndermez (Flux Setup gönderir).' ); ?></p>
 		</div>
 		<?php
 		$this->view_resources();
@@ -1302,7 +1302,7 @@ var L = <?php echo json_encode( array(
 		$out = '<span class="pill muted">Public</span>';
 		$ih  = (string) ( $c['ih'] ?? '' );
 		if ( '' === $ih ) {
-			return $out . '<br><span class="small muted" title="' . $e( __( 'Otomatik anahtar teslimi için sitede Flux Updater 1.7.0 ya da üstü gerekir.' ) ) . '">' . $e( __( 'Updater 1.7.0+ gerekli' ) ) . '</span>';
+			return $out . '<br><span class="small muted" title="' . $e( __( 'Otomatik anahtar teslimi için sitede Flux Setup (veya Flux Updater 1.7.0+) gerekir.' ) ) . '">' . $e( __( 'Flux Setup gerekli' ) ) . '</span>';
 		}
 		if ( isset( $pending[ $ih ] ) ) {
 			return '<a href="#' . $e( self::key_anchor( $pending[ $ih ] ) ) . '"><span class="pill warn">' . $e( __( 'Teslim bekliyor' ) ) . '</span></a>';
@@ -1491,7 +1491,7 @@ var L = <?php echo json_encode( array(
 		$seen = $states[ $hash ]['last_seen'] ?? '';
 		echo '<p>' . ( $off ? '<span class="pill err">' . $e( __( 'Pasif' ) ) . '</span> ' : '' ) . '<span class="pill ok">' . $e( __( 'Geçerli' ) ) . '</span> <b>' . $e( $found['name'] ?? '' ) . '</b> · ' . ( 'beta' === $site['channel'] ? __( 'Beta dahil' ) : __( 'Kararlı' ) ) . '</p>';
 		echo '<p class="small">' . $e( _f( 'Görebileceği paketler (%d):', count( $visible ) ) ) . ' ' . $e( implode( ', ', $visible ) ?: '—' ) . '</p>';
-		echo '<p class="small">' . $e( $seen ? _f( 'Site en son %s bağlandı.', $seen ) : __( 'Site henüz bağlanmadı: WordPress › Ayarlar › Flux Updater › "Bağlantıyı test et".' ) ) . '</p>';
+		echo '<p class="small">' . $e( $seen ? _f( 'Site en son %s bağlandı.', $seen ) : __( 'Site henüz bağlanmadı: WordPress › Setup › Ayarlar › "Bağlantıyı test et".' ) ) . '</p>';
 		echo '</div>';
 	}
 

@@ -9,7 +9,7 @@
 
 namespace FLXUpdate;
 
-const VERSION = '1.9.2';
+const VERSION = '1.9.3';
 const DAY_SECONDS = 86400;
 
 class HttpError extends \Exception {}
