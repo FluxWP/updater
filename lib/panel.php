@@ -12,6 +12,9 @@ final class Panel {
 	const COOKIE = 'flxu_admin';
 	const TTL    = 43200; // 12 saat
 
+	/** Siteye her zaman açık güncelleyici paketleri: Flux Setup (1.0.0'dan beri güncelleyiciyi içerir) ve eski Flux Updater. */
+	const UPDATER_SLUGS = array( 'flx-setup', 'flx-updater' );
+
 	/** @var Server */
 	private $server;
 
@@ -379,8 +382,11 @@ final class Panel {
 				$out[] = $slug;
 			}
 		}
-		if ( ! in_array( 'flx-updater', $out, true ) ) {
-			$out[] = 'flx-updater';
+		// Güncelleyici paketi (Flux Setup; eski adı Flux Updater) her seçime eklenir.
+		foreach ( self::UPDATER_SLUGS as $u ) {
+			if ( ! in_array( $u, $out, true ) ) {
+				$out[] = $u;
+			}
 		}
 		sort( $out );
 		return $out;
@@ -485,7 +491,7 @@ final class Panel {
 		$in = array_map( 'strtolower', (array) ( $conf['repos'] ?? array() ) );
 		foreach ( (array) $conf['packages'] as $slug ) {
 			$r = $catalog[ $slug ] ?? null;
-			if ( ! $r && 'flx-updater' === $slug ) {
+			if ( ! $r && in_array( $slug, self::UPDATER_SLUGS, true ) ) {
 				continue; // Her seçime kendiliğinden eklenir; katalogda yoksa gösterme.
 			}
 			if ( $r && in_array( strtolower( (string) ( $r['repo'] ?? '' ) ), $in, true ) ) {
@@ -1445,7 +1451,7 @@ var L = <?php echo json_encode( array(
 					<label class="repo-all"><input type="checkbox" name="repos[]" value="<?php echo self::e( $g['repo'] ); ?>" <?php echo $whole ? 'checked' : ''; ?> onchange="this.closest('fieldset').classList.toggle('whole',this.checked)"> <b><?php echo self::e( $g['repo'] ); ?></b> <span class="muted small"><?php echo self::e( _f( 'tümü, %d paket + sonradan eklenenler', count( $g['items'] ) ) ); ?></span></label>
 					<div class="checks">
 						<?php foreach ( $g['items'] as $slug => $r ) : ?>
-							<label><input type="checkbox" name="packages[]" value="<?php echo self::e( $slug ); ?>" <?php echo ( in_array( $slug, $sel, true ) || 'flx-updater' === $slug ) ? 'checked' : ''; ?> <?php echo 'flx-updater' === $slug ? 'disabled' : ''; ?>> <?php echo self::e( $r['name'] ); ?></label>
+							<label><input type="checkbox" name="packages[]" value="<?php echo self::e( $slug ); ?>" <?php echo ( in_array( $slug, $sel, true ) || in_array( $slug, self::UPDATER_SLUGS, true ) ) ? 'checked' : ''; ?> <?php echo in_array( $slug, self::UPDATER_SLUGS, true ) ? 'disabled' : ''; ?>> <?php echo self::e( $r['name'] ); ?></label>
 						<?php endforeach; ?>
 					</div>
 				</fieldset>
