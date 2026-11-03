@@ -9,7 +9,7 @@
 
 namespace FLXUpdate;
 
-const VERSION = '1.9.3';
+const VERSION = '1.9.4';
 const DAY_SECONDS = 86400;
 
 class HttpError extends \Exception {}
@@ -26,6 +26,7 @@ final class Server {
 		$this->config = $config + array(
 			'repo'                => '',
 			'public_repos'        => '',
+			'public_packages'     => '',
 			'app_repo'            => '',
 			'fluxapp_repo'        => '',
 			'github_token'        => '',
@@ -57,7 +58,7 @@ final class Server {
 						'service'    => 'flx-update-server',
 						'version'    => VERSION,
 						'configured' => ( '' !== (string) $this->config['github_token'] && ! empty( $this->config['sites'] ) ) || (bool) $this->public_repos(),
-						'public'     => (bool) $this->public_repos(),
+						'public'     => (bool) $this->public_repos() || (bool) $this->public_packages(),
 					)
 				);
 				return;
@@ -156,7 +157,7 @@ final class Server {
 				'changelog'    => $rel['changelog_html'],
 				'released'     => $rel['published_at'],
 				'size'         => $rel['size'],
-				'public'       => ! empty( $rel['public'] ),
+				'public'       => $this->is_public( $rel ),
 				'versions'     => $versions[ $slug ] ?? array(),
 			);
 		}
@@ -887,7 +888,7 @@ final class Server {
 	private function auth_site(): array {
 		$key = $this->request_key();
 		if ( '' === $key ) {
-			if ( ! $this->public_repos() ) {
+			if ( ! $this->public_repos() && ! $this->public_packages() ) {
 				throw new HttpError( 'Missing site key', 401 );
 			}
 			return array(
@@ -950,7 +951,7 @@ final class Server {
 
 	/** Public depodaki paket herkese; private depodaki yalnız izinli anahtara. */
 	public function can_see( array $site, array $release ): bool {
-		return ! empty( $release['public'] ) || $this->site_allows( $site, $release );
+		return $this->is_public( $release ) || $this->site_allows( $site, $release );
 	}
 
 	/* ------------------------------------------------------------------ */
@@ -1014,6 +1015,27 @@ final class Server {
 			}
 		}
 		return array_values( $out );
+	}
+
+	/**
+	 * Private depodaki ama herkese anahtarsız açık paketler (ör. web sitesinden indirilen flx-setup).
+	 *
+	 * @return string[] slug listesi
+	 */
+	public function public_packages(): array {
+		$out = array();
+		foreach ( preg_split( '/[\s,]+/', (string) ( $this->config['public_packages'] ?? '' ) ) as $s ) {
+			$s = strtolower( trim( $s ) );
+			if ( preg_match( '/^[a-z0-9][a-z0-9-]{0,63}$/', $s ) ) {
+				$out[ $s ] = $s;
+			}
+		}
+		return array_values( $out );
+	}
+
+	/** Paket anahtarsız iner mi: public depoda ya da public paket listesinde. */
+	public function is_public( array $release ): bool {
+		return ! empty( $release['public'] ) || in_array( (string) $release['slug'], $this->public_packages(), true );
 	}
 
 	public function public_repos(): array {
