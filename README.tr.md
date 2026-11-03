@@ -36,7 +36,7 @@ Tüm ayarlar **/admin** panelinden girilir; `config.php` gerekmez.
 4. **GitHub** kartı: private ve public depoları seçin, token'ı yapıştırın, *Kaydet ve test et*. **Bağlı** görünmeli.
    Token: GitHub › Settings › Developer settings › Fine-grained tokens, yalnız private depolar, **Contents: Read-only**. Yalnız public depo sunacaksanız token gerekmez.
 5. **Site ekle**: ad, private paketler (hepsi ya da seçili), kanal, *Anahtar üret*. Anahtar **bir kez** gösterilir; kopyalayıp *Bu anahtarı test et* ile deneyin.
-6. Sitede: `flx-updater.zip`'i bir kez kurun, **Ayarlar › Flux Updater**'da anahtarı yapıştırıp *Kaydet ve kontrol et*. Eklentinin varsayılan sunucusu `https://updater.fluxwp.com`; kendi sunucunuz varsa adresini yazın. Anahtarsız site yalnız public paketleri görür.
+6. Sitede: `flx-setup.zip`'i bir kez kurun, **Setup › Ayarlar**'da anahtarı yapıştırıp *Kaydet ve kontrol et*. Eklentinin varsayılan sunucusu `https://updater.fluxwp.com`; kendi sunucunuz varsa adresini yazın. Anahtarsız site yalnız public paketleri görür.
 7. İsteğe bağlı, **anında yayın**: *Secret üret*, sonra paket deposunda Settings › Secrets › Actions'a `UPDATE_WEBHOOK_SECRET` adıyla ekleyin. Yoksa yeni sürüm en geç 5 dakikada görünür.
 
 Güncellemek için yeni zip'i üstüne açın. Ayarlar zip'te olmayan `data/settings.json`'da durur. `data/` yazılabilir olmalı.
