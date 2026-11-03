@@ -9,7 +9,7 @@
 return array(
 	'base_url'            => '',   // boşsa istekten bulunur, ör. https://updater.fluxwp.com
 	'repo'                => 'FluxWP/fluxwp',      // private depolar (virgülle); paketleri yalnız site anahtarıyla
-	'public_repos'        => 'FluxWP/wp-extras',   // public depolar (virgülle); paketleri herkese anahtarsız
+	'public_repos'        => '',   // public depolar (virgülle); paketleri herkese anahtarsız
 	'github_token'        => '',   // fine-grained token, private depolar, Contents: Read-only
 	'webhook_secret'      => '',   // Actions secret UPDATE_WEBHOOK_SECRET ile aynı
 	'admin_user'          => 'admin',

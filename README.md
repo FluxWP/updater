@@ -3,7 +3,7 @@
 GitHub release'lerini WordPress sitelerine "güncelleme var" olarak sunan, kendi sunucunuzda çalışan
 güncelleme sunucusu. FluxWP'nin resmi sunucusu `https://updater.fluxwp.com`; aynı kodla kendi sunucunuzu da kurabilirsiniz.
 
-- **Public depolar** (varsayılan `FluxWP/wp-extras`): paketleri herkese **anahtarsız** sunulur.
+- **Public depolar** (varsayılan boş): paketleri herkese **anahtarsız** sunulur.
 - **Private depolar** (varsayılan `FluxWP/fluxwp`): paketleri yalnız **site anahtarıyla**, anahtara tanımlı paketler kadar görünür.
 
 GitHub token yalnız bu sunucuda durur; siteler Flux Updater eklentisiyle bağlanır.
@@ -64,7 +64,7 @@ isterseniz ortam değişkeni de olur (panel değerleri bunları ezer):
 | `FLX_UPDATE_ADMIN_USER` / `FLX_UPDATE_ADMIN_PASSWORD` | panel girişi (ilk kurulum yerine) |
 | `FLX_UPDATE_BASE_URL` | boşsa istekten bulunur |
 | `FLX_UPDATE_REPO` | private depolar, virgülle (varsayılan `FluxWP/fluxwp`) |
-| `FLX_UPDATE_PUBLIC_REPOS` | public depolar, virgülle (varsayılan `FluxWP/wp-extras`) |
+| `FLX_UPDATE_PUBLIC_REPOS` | public depolar, virgülle (varsayılan boş: anahtarsız güncelleme kapalı) |
 | `FLX_UPDATE_CACHE_TTL` | release önbelleği, sn (300) |
 | `FLX_UPDATE_DATA_DIR` | varsayılan `./data` |
 | `FLX_UPDATE_LANG` | panelin varsayılan dili: `en` (varsayılan) ya da `tr` |
@@ -102,7 +102,7 @@ panelde salt okunur görünür. Panelden girilen değerler `config.php`'yi ezer.
 
 ### Public paketler (1.7.0)
 
-Sunucu artık anahtarsız sitelere de cevap verir: public depolardaki (varsayılan `FluxWP/wp-extras`) paketler herkese
+Sunucu artık anahtarsız sitelere de cevap verir: public depolardaki paketler herkese
 açıktır, beta sürümleri hariç. Site anahtarı girilmişse aynı yanıta anahtara tanımlı private paketler eklenir.
 Panelde "Private paketler" seçimi yalnız private depoları kapsar. Public depo listesi boşaltılırsa sunucu eskisi gibi
 yalnız anahtarla çalışır. Bir depo okunamazsa yalnız o deponun paketleri son bilinen listeden gelir; GitHub kartında
