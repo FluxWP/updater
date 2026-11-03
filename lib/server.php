@@ -9,7 +9,7 @@
 
 namespace FLXUpdate;
 
-const VERSION = '1.9.0';
+const VERSION = '1.9.1';
 const DAY_SECONDS = 86400;
 
 class HttpError extends \Exception {}
@@ -66,7 +66,7 @@ final class Server {
 				$this->route_check( $method );
 				return;
 			}
-			if ( preg_match( '#^/v1/download/([a-z0-9][a-z0-9-]*)/([0-9][0-9A-Za-z.+-]*)\.zip$#', $path, $m ) ) {
+			if ( preg_match( '#^/v1/download/([a-z0-9][a-z0-9-]*)/(latest|[0-9][0-9A-Za-z.+-]*)\.zip$#', $path, $m ) ) {
 				$this->route_download( $m[1], $m[2] );
 				return;
 			}
@@ -186,6 +186,30 @@ final class Server {
 		$site    = $this->auth_site();
 		$release = null;
 		$denied  = false;
+		// latest.zip: sitenin görebildiği son kararlı sürüm (web sitesindeki "İndir" butonu için).
+		// Public paket anahtarsız iner; private paket yine site anahtarı ister.
+		if ( 'latest' === $version ) {
+			$best = null;
+			foreach ( $this->releases() as $r ) {
+				if ( $r['slug'] !== $slug || ! $r['asset_id'] || ( $r['prerelease'] && 'beta' !== $site['channel'] ) ) {
+					continue;
+				}
+				if ( ! $this->can_see( $site, $r ) ) {
+					$denied = true;
+					continue;
+				}
+				if ( ! $best || version_compare( $r['version'], $best['version'], '>' ) ) {
+					$best = $r;
+				}
+			}
+			if ( ! $best ) {
+				if ( $denied ) {
+					throw new HttpError( empty( $site['anon'] ) ? 'Package not allowed for this site' : 'Site key required', empty( $site['anon'] ) ? 403 : 401 );
+				}
+				throw new HttpError( 'Package not found', 404 );
+			}
+			$version = $best['version'];
+		}
 		foreach ( $this->releases() as $r ) {
 			if ( $r['slug'] !== $slug || $r['version'] !== $version || ! $r['asset_id'] ) {
 				continue;

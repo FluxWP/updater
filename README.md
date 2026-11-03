@@ -86,6 +86,7 @@ To upgrade, extract the new zip over the old one. Settings live in `data/setting
 | `GET /v1/health` | status |
 | `POST /v1/check` | no key: public packages; with a site key: plus allowed private packages. Wrong key: 403 |
 | `GET /v1/download/<slug>/<version>.zip` | public package without a key, private package with a site key; cached in `data/zips` |
+| `GET /v1/download/<slug>/latest.zip` | latest stable version the caller may see (for website download buttons); public without a key, private still needs a site key |
 | `GET /v1/app/latest?channel=stable\|beta` | public; latest app version and platform files |
 | `GET /v1/app/download/<tag>/<file>` | public; 302 to GitHub's short-lived download URL |
 | `GET /v1/fluxapp/<brand>/latest?channel=stable\|beta` | public; latest FluxWP desktop (dmg + update bundle) |
