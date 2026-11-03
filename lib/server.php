@@ -9,7 +9,7 @@
 
 namespace FLXUpdate;
 
-const VERSION = '1.9.6';
+const VERSION = '1.9.7';
 const DAY_SECONDS = 86400;
 
 class HttpError extends \Exception {}
@@ -89,6 +89,10 @@ final class Server {
 			}
 			if ( preg_match( '#^/v1/fluxapp/download/(fluxapp-v[0-9][0-9A-Za-z.+-]*)/([A-Za-z0-9._-]+)$#', $path, $m ) ) {
 				$this->route_fluxapp_download( $m[1], $m[2] );
+				return;
+			}
+			if ( preg_match( '#^/v1/fluxapp/([a-z0-9][a-z0-9-]*)/download/(macos|windows|windows-msi)$#', $path, $m ) ) {
+				$this->route_fluxapp_download_latest( $m[1], $m[2] );
 				return;
 			}
 			if ( '/v1/webhook' === $path && 'POST' === $method ) {
@@ -517,14 +521,17 @@ final class Server {
 		return (string) ( $this->config['fluxapp_repo'] ?: ( $this->private_repos()[0] ?? '' ) );
 	}
 
-	/** Kanal: "-" içeren sürüm (0.3.0-beta.1) yalnız beta'da. GitHub pre-release işareti kanalı belirlemez. */
-	private function fluxapp_best( string $brand, bool $beta, string $need = 'dmg' ): ?array {
+	/**
+	 * Kanal: "-" içeren sürüm (0.3.0-beta.1) yalnız beta'da. GitHub pre-release işareti kanalı belirlemez.
+	 * $need: bu dosya türlerinden biri olan en yeni sürüm (dmg, tar, sig, exe, exe_sig, msi).
+	 */
+	private function fluxapp_best( string $brand, bool $beta, $need = array( 'dmg', 'exe', 'msi' ) ): ?array {
 		$best = null;
 		foreach ( $this->fluxapp_releases() as $r ) {
 			if ( ! $beta && false !== strpos( $r['version'], '-' ) ) {
 				continue;
 			}
-			if ( empty( $r['brands'][ $brand ][ $need ] ) ) {
+			if ( ! array_intersect( (array) $need, array_keys( $r['brands'][ $brand ] ?? array() ) ) ) {
 				continue;
 			}
 			if ( ! $best || version_compare( $r['version'], $best['version'], '>' ) ) {
@@ -538,7 +545,7 @@ final class Server {
 		return $this->base_url() . '/v1/fluxapp/download/' . rawurlencode( $tag ) . '/' . rawurlencode( $name );
 	}
 
-	/** GET /v1/fluxapp/{marka}/latest?channel=stable|beta: son sürüm + dmg adresi. */
+	/** GET /v1/fluxapp/{marka}/latest?channel=stable|beta: son sürüm + kurulum dosyaları (dmg, exe, msi, güncelleme paketi). */
 	private function route_fluxapp_latest( string $brand ): void {
 		$best = $this->fluxapp_best( $brand, 'beta' === ( $_GET['channel'] ?? '' ) );
 		header( 'Access-Control-Allow-Origin: *' );
@@ -548,7 +555,7 @@ final class Server {
 		}
 		$assets = array();
 		foreach ( $best['brands'][ $brand ] as $kind => $a ) {
-			if ( 'sig' !== $kind ) {
+			if ( 'sig' !== $kind && 'exe_sig' !== $kind ) {
 				$assets[ $kind ] = array( 'name' => $a['name'], 'size' => $a['size'], 'url' => $this->fluxapp_url( $best['tag'], $a['name'] ) );
 			}
 		}
@@ -566,21 +573,27 @@ final class Server {
 
 	/**
 	 * GET /v1/fluxapp/{marka}/tauri/{target}/{arch}/{current}?channel=…
-	 * Tauri updater biçimi. Yeni sürüm yoksa 204. macOS universal paket her iki mimariye de gider.
+	 * Tauri updater biçimi. Yeni sürüm yoksa 204. macOS universal paket her iki mimariye de gider;
+	 * Windows x64 setup.exe ARM64 Windows'ta da çalışır (emülasyon).
 	 */
 	private function route_fluxapp_tauri( string $brand, string $target, string $arch, string $current ): void {
 		$beta = 'beta' === ( $_GET['channel'] ?? '' ) || false !== strpos( $current, '-' );
-		if ( 'darwin' !== $target ) {
+		$pair = array(
+			'darwin'  => array( 'tar', 'sig' ),
+			'windows' => array( 'exe', 'exe_sig' ),
+		)[ $target ] ?? null;
+		if ( ! $pair ) {
 			http_response_code( 204 );
 			return;
 		}
-		$best = $this->fluxapp_best( $brand, $beta, 'tar' );
-		if ( ! $best || ! version_compare( $best['version'], $current, '>' ) || empty( $best['brands'][ $brand ]['sig'] ) ) {
+		list( $pkg, $sig_kind ) = $pair;
+		$best = $this->fluxapp_best( $brand, $beta, $sig_kind );
+		if ( ! $best || ! version_compare( $best['version'], $current, '>' ) || empty( $best['brands'][ $brand ][ $pkg ] ) ) {
 			http_response_code( 204 );
 			return;
 		}
 		$files = $best['brands'][ $brand ];
-		$sig   = $this->fluxapp_signature( (int) $files['sig']['id'] );
+		$sig   = $this->fluxapp_signature( (int) $files[ $sig_kind ]['id'] );
 		if ( '' === $sig ) {
 			http_response_code( 204 );
 			return;
@@ -590,7 +603,7 @@ final class Server {
 				'version'   => $best['version'],
 				'notes'     => trim( preg_replace( '/\s+/', ' ', strip_tags( $best['notes_html'] ) ) ),
 				'pub_date'  => $best['published_at'],
-				'url'       => $this->fluxapp_url( $best['tag'], $files['tar']['name'] ),
+				'url'       => $this->fluxapp_url( $best['tag'], $files[ $pkg ]['name'] ),
 				'signature' => $sig,
 			)
 		);
@@ -639,7 +652,23 @@ final class Server {
 	}
 
 	/**
-	 * FluxWP release'leri (önbellekli). Tag: fluxapp-v<sürüm>. Dosya adı: fluxapp-<marka>-<sürüm>-macos-universal.(dmg|app.tar.gz|app.tar.gz.sig).
+	 * GET /v1/fluxapp/{marka}/download/{macos|windows|windows-msi}?channel=…: son kurulum dosyasına 302.
+	 * Sitelerde ve fluxwp.com'da "İndir" düğmeleri bu kalıcı adresi kullanır.
+	 */
+	private function route_fluxapp_download_latest( string $brand, string $os ): void {
+		$kind = array( 'macos' => 'dmg', 'windows' => 'exe', 'windows-msi' => 'msi' )[ $os ];
+		$best = $this->fluxapp_best( $brand, 'beta' === ( $_GET['channel'] ?? '' ), $kind );
+		if ( ! $best ) {
+			throw new HttpError( 'No release for this platform yet', 404 );
+		}
+		header( 'Cache-Control: no-store' );
+		header( 'Location: ' . $this->fluxapp_url( $best['tag'], $best['brands'][ $brand ][ $kind ]['name'] ), true, 302 );
+	}
+
+	/**
+	 * FluxWP release'leri (önbellekli). Tag: fluxapp-v<sürüm>. Dosya adları:
+	 * fluxapp-<marka>-<sürüm>-macos-universal.(dmg|app.tar.gz|app.tar.gz.sig),
+	 * fluxapp-<marka>-<sürüm>-windows-x64(-setup.exe|-setup.exe.sig|.msi).
 	 * Paket release'leri aynı depoda olduğundan iki sayfa okunur.
 	 */
 	public function fluxapp_releases(): array {
@@ -673,10 +702,17 @@ final class Server {
 			$brands = array();
 			foreach ( (array) ( $rel['assets'] ?? array() ) as $a ) {
 				$name = (string) ( $a['name'] ?? '' );
-				if ( ! preg_match( '/^fluxapp-([a-z0-9][a-z0-9-]*?)-[0-9][0-9A-Za-z.+-]*-macos-universal\.(dmg|app\.tar\.gz|app\.tar\.gz\.sig)$/', $name, $am ) ) {
+				if ( ! preg_match( '/^fluxapp-([a-z0-9][a-z0-9-]*?)-[0-9][0-9A-Za-z.+-]*-(macos-universal\.dmg|macos-universal\.app\.tar\.gz|macos-universal\.app\.tar\.gz\.sig|windows-x64-setup\.exe|windows-x64-setup\.exe\.sig|windows-x64\.msi)$/', $name, $am ) ) {
 					continue;
 				}
-				$kind                       = array( 'dmg' => 'dmg', 'app.tar.gz' => 'tar', 'app.tar.gz.sig' => 'sig' )[ $am[2] ];
+				$kind                       = array(
+					'macos-universal.dmg'            => 'dmg',
+					'macos-universal.app.tar.gz'     => 'tar',
+					'macos-universal.app.tar.gz.sig' => 'sig',
+					'windows-x64-setup.exe'          => 'exe',
+					'windows-x64-setup.exe.sig'      => 'exe_sig',
+					'windows-x64.msi'                => 'msi',
+				)[ $am[2] ];
 				$brands[ $am[1] ][ $kind ] = array( 'id' => (int) $a['id'], 'name' => $name, 'size' => (int) $a['size'] );
 			}
 			$items[] = array(
