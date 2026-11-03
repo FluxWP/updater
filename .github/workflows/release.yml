@@ -1,7 +1,7 @@
 name: Sunucu release
 
 # lib/server.php içindeki VERSION değişince v<sürüm> release'i ve
-# wp-update-server.zip (hosting'e elle yüklenecek paket) üretilir.
+# flx-update-server.zip (hosting'e elle yüklenecek paket) üretilir.
 
 on:
   push:
@@ -29,6 +29,6 @@ jobs:
             echo "$tag zaten var"; exit 0
           fi
           bash bin/build-zip.sh
-          gh release create "$tag" dist/wp-update-server.zip \
-            --target "$GITHUB_SHA" --title "wp-update-server $version" \
+          gh release create "$tag" dist/flx-update-server.zip \
+            --target "$GITHUB_SHA" --title "flx-update-server $version" \
             --notes "Hosting'e yükleme: zip'i subdomain'in kök klasörüne açın, config.sample.php → config.php. Güncellemede config.php ve data/ korunur (zip'te yok)."
