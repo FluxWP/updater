@@ -9,7 +9,7 @@
 
 namespace FLXUpdate;
 
-const VERSION = '1.9.5';
+const VERSION = '1.9.6';
 const DAY_SECONDS = 86400;
 
 class HttpError extends \Exception {}
@@ -317,6 +317,27 @@ final class Server {
 		if ( is_dir( $this->data_dir . '/zips' ) && ( ! is_file( $stamp ) || time() - (int) filemtime( $stamp ) > 3600 ) ) {
 			$this->prune_zips();
 		}
+		$this->prune_log();
+	}
+
+	/** access.log satırları LOG_DAYS günden eski olunca silinir (günde bir kez bakılır). */
+	const LOG_DAYS = 90;
+
+	private function prune_log(): void {
+		$file  = $this->data_dir . '/access.log';
+		$stamp = $this->data_dir . '/.log-pruned';
+		if ( ! is_file( $file ) || ( is_file( $stamp ) && time() - (int) filemtime( $stamp ) < DAY_SECONDS ) ) {
+			return;
+		}
+		@touch( $stamp );
+		$cut  = gmdate( 'c', time() - self::LOG_DAYS * DAY_SECONDS );
+		$keep = array();
+		foreach ( (array) @file( $file ) as $line ) {
+			if ( strncmp( (string) $line, $cut, 19 ) >= 0 ) {
+				$keep[] = $line;
+			}
+		}
+		file_put_contents( $file, implode( '', $keep ), LOCK_EX );
 	}
 
 	/** @return array{files:int,bytes:int} */
@@ -1064,6 +1085,9 @@ final class Server {
 			$file,
 			function () use ( $file, $site, $body ) {
 				$all  = $this->read_json( $file );
+				if ( ! Stats::usage_allowed( $body ) ) {
+					unset( $body['site'], $body['wp'], $body['php'] );
+				}
 				$pkgs = array();
 				foreach ( (array) ( $body['packages'] ?? array() ) as $slug => $ver ) {
 					if ( is_string( $slug ) && preg_match( '/^[a-z0-9-]{1,64}$/', $slug ) && is_scalar( $ver ) ) {
