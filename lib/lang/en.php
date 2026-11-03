@@ -224,4 +224,6 @@ return array(
 	'Seçilen depolar ve paketler' => 'Selected repositories and packages',
 	'Private depo yok.' => 'No private repositories.',
 	'tümü, %d paket + sonradan eklenenler' => 'all, %d packages + any added later',
+	'Herkese açık paketler' => 'Public packages',
+	'(private depodaki bu paketler anahtarsız iner; ör. web sitesindeki indirme butonu için flx-setup)' => '(these packages from private repositories download without a key, e.g. flx-setup for the website download button)',
 );

@@ -44,6 +44,7 @@ function load_config( string $root ): array {
 	$config = array(
 		'repo'                => (string) $env( 'FLX_UPDATE_REPO', '' ),
 		'public_repos'        => (string) $env( 'FLX_UPDATE_PUBLIC_REPOS', '' ),
+		'public_packages'     => (string) $env( 'FLX_UPDATE_PUBLIC_PACKAGES', '' ),
 		'app_repo'            => (string) $env( 'FLX_UPDATE_APP_REPO', '' ),
 		'fluxapp_repo'        => (string) $env( 'FLX_UPDATE_FLUXAPP_REPO', '' ),
 		'github_token'        => (string) $env( 'FLX_UPDATE_GITHUB_TOKEN' ),
@@ -85,7 +86,7 @@ function load_config( string $root ): array {
 		}
 	}
 	// Depo alanları panelde boşaltılabilir: "-" kayıtlı (ör. public güncelleme kapalı).
-	foreach ( array( 'repo', 'public_repos', 'app_repo' ) as $k ) {
+	foreach ( array( 'repo', 'public_repos', 'app_repo', 'public_packages' ) as $k ) {
 		if ( isset( $panel[ $k ] ) && '' !== $panel[ $k ] ) {
 			$config[ $k ] = '-' === $panel[ $k ] ? '' : $panel[ $k ];
 		}
