@@ -93,6 +93,9 @@ final class Panel {
 			'github'  => array( __( 'GitHub ayarları kaydedildi.' ), 'ok' ),
 			'deleted' => array( __( 'Site silindi. O sitenin anahtarı artık çalışmaz.' ), 'ok' ),
 			'updated' => array( __( 'Site güncellendi.' ), 'ok' ),
+			'on'      => array( __( 'Anahtar aktif: site izinli private paketleri yeniden alır.' ), 'ok' ),
+			'off'     => array( __( 'Anahtar pasif: site yalnız public paketleri görür.' ), 'ok' ),
+			'noclient' => array( __( 'Bu siteye anahtar verilemedi: kayıt yok ya da site Flux Updater 1.7.0\'dan eski.' ), 'err' ),
 			'flushed' => array( __( 'Paket listesi GitHub\'dan yeniden okundu.' ), 'ok' ),
 			'pw'      => array( __( 'Parola değiştirildi.' ), 'ok' ),
 			'webhook' => array( __( 'Webhook secret üretildi. GitHub\'a eklemeyi unutmayın.' ), 'ok' ),
@@ -165,6 +168,23 @@ final class Panel {
 
 			case 'update_site':
 				$this->do_update_site();
+				return;
+
+			case 'issue_key':
+				$this->do_issue_key();
+				return;
+
+			case 'toggle_site':
+				$hash  = (string) ( $_POST['hash'] ?? '' );
+				$sites = $this->panel_sites();
+				if ( isset( $sites[ $hash ] ) ) {
+					$on                       = ! empty( $_POST['on'] );
+					$sites[ $hash ]['active'] = $on;
+					Settings::update( $this->data_dir, array( 'sites' => $sites ) );
+					$this->redirect( $on ? 'on' : 'off' );
+					return;
+				}
+				$this->redirect();
 				return;
 
 			case 'delete_site':
@@ -334,6 +354,21 @@ final class Panel {
 		return is_array( $s['sites'] ?? null ) ? $s['sites'] : array();
 	}
 
+	/** Seçilen depolar (bütünüyle, sonradan eklenen paketler dahil). "Tümü" seçiliyse boş. */
+	private function repos_from_post(): array {
+		if ( 'all' === ( $_POST['scope'] ?? 'all' ) ) {
+			return array();
+		}
+		$private = array_map( 'strtolower', $this->server->private_repos() );
+		$out     = array();
+		foreach ( (array) ( $_POST['repos'] ?? array() ) as $r ) {
+			if ( is_string( $r ) && in_array( strtolower( $r ), $private, true ) ) {
+				$out[] = $r;
+			}
+		}
+		return array_values( array_unique( $out ) );
+	}
+
 	private function packages_from_post() {
 		if ( 'all' === ( $_POST['scope'] ?? 'all' ) ) {
 			return '*';
@@ -364,7 +399,9 @@ final class Panel {
 		$sites[ $hash ] = array(
 			'name'     => mb_substr( $name, 0, 80 ),
 			'packages' => $this->packages_from_post(),
+			'repos'    => $this->repos_from_post(),
 			'channel'  => 'beta' === ( $_POST['channel'] ?? '' ) ? 'beta' : 'stable',
+			'active'   => true,
 			'created'  => gmdate( 'Y-m-d H:i' ) . ' UTC',
 		);
 		Settings::update( $this->data_dir, array( 'sites' => $sites ) );
@@ -381,10 +418,82 @@ final class Panel {
 				$sites[ $hash ]['name'] = mb_substr( $name, 0, 80 );
 			}
 			$sites[ $hash ]['packages'] = $this->packages_from_post();
+			$sites[ $hash ]['repos']    = $this->repos_from_post();
 			$sites[ $hash ]['channel']  = 'beta' === ( $_POST['channel'] ?? '' ) ? 'beta' : 'stable';
 			Settings::update( $this->data_dir, array( 'sites' => $sites ) );
 		}
 		$this->redirect( 'updated' );
+	}
+
+	/**
+	 * "Bağlanan siteler"den anahtar ver: anahtar kurulum kimliğine bağlanır, site bir sonraki
+	 * kontrolde kendiliğinden alır (Flux Updater 1.7.0+). Varsayılan izin boş; yönetici seçer.
+	 */
+	private function do_issue_key(): void {
+		$id = (string) ( $_POST['client'] ?? '' );
+		$c  = preg_match( '/^u[a-f0-9]{15}$/', $id ) ? $this->server->stats()->client( $id ) : null;
+		$ih = (string) ( $c['ih'] ?? '' );
+		if ( ! $c || ! preg_match( '/^[a-f0-9]{64}$/', $ih ) ) {
+			$this->redirect( 'noclient' );
+			return;
+		}
+		$sites = $this->panel_sites();
+		foreach ( $sites as $h => $conf ) {
+			// Aynı kuruluma verilmiş, henüz alınmamış eski anahtar yenisiyle değişir.
+			if ( ( $conf['pending']['ih'] ?? '' ) === $ih ) {
+				unset( $sites[ $h ] );
+			}
+		}
+		$nonce = bin2hex( random_bytes( 8 ) );
+		$key   = Server::derive_key( $this->secret(), $ih, $nonce );
+		$hash  = hash( 'sha256', $key );
+		$url   = (string) ( $c['url'] ?? '' );
+		$name  = (string) parse_url( $url, PHP_URL_HOST );
+		$name  = preg_replace( '/^www\./', '', $name ) . rtrim( (string) parse_url( $url, PHP_URL_PATH ), '/' );
+		$sites[ $hash ] = array(
+			'name'     => mb_substr( '' !== $name ? $name : 'Site', 0, 80 ),
+			'packages' => array(),
+			'repos'    => array(),
+			'channel'  => 'stable',
+			'active'   => true,
+			'created'  => gmdate( 'Y-m-d H:i' ) . ' UTC',
+			'pending'  => array(
+				'ih'  => $ih,
+				'n'   => $nonce,
+				'exp' => time() + Server::CLAIM_DAYS * DAY_SECONDS,
+			),
+		);
+		Settings::update( $this->data_dir, array( 'sites' => $sites ) );
+		$this->config['sites'][ $hash ] = $sites[ $hash ] + array( 'source' => 'panel' );
+		$this->page( __( 'Panel' ), array( $this, 'view_dashboard' ), array( 'new_key' => $key, 'new_name' => $sites[ $hash ]['name'], 'issued' => $hash ) );
+	}
+
+	/** Anahtarlı site satırının bağlantı kimliği. */
+	private static function key_anchor( string $hash ): string {
+		return 'key-' . substr( $hash, 0, 15 );
+	}
+
+	/** İzin özeti: "Tüm private paketler" ya da depolar + paketler. */
+	private function scope_label( array $conf, array $catalog ): string {
+		if ( '*' === ( $conf['packages'] ?? '*' ) ) {
+			return self::e( __( 'Tüm private paketler' ) );
+		}
+		$parts = array();
+		foreach ( (array) ( $conf['repos'] ?? array() ) as $r ) {
+			$parts[] = '<b>' . self::e( $r ) . '</b> ' . self::e( __( '(tümü)' ) );
+		}
+		$in = array_map( 'strtolower', (array) ( $conf['repos'] ?? array() ) );
+		foreach ( (array) $conf['packages'] as $slug ) {
+			$r = $catalog[ $slug ] ?? null;
+			if ( ! $r && 'flx-updater' === $slug ) {
+				continue; // Her seçime kendiliğinden eklenir; katalogda yoksa gösterme.
+			}
+			if ( $r && in_array( strtolower( (string) ( $r['repo'] ?? '' ) ), $in, true ) ) {
+				continue;
+			}
+			$parts[] = self::e( $r['name'] ?? $slug );
+		}
+		return $parts ? implode( ', ', $parts ) : '<span class="muted">' . self::e( __( 'Yalnız public paketler' ) ) . '</span>';
 	}
 
 	/* ------------------------------------------------------------------ */
@@ -453,6 +562,9 @@ table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:8px 6px;
 .muted{color:var(--muted)}.small{font-size:12px}code,pre{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px}
 pre{background:#f6f8f7;border:1px solid var(--line);border-radius:6px;padding:10px;white-space:pre-wrap;word-break:break-all;margin:6px 0}
 .key{background:#fffbe8;border-color:#f0dc9a}
+form.inline{display:inline-block;margin:0}form.give{display:block;margin-top:6px}
+.repo-grp{border:1px solid var(--line,#e3e7e4);border-radius:10px;padding:8px 10px;margin:8px 0}.repo-grp .repo-all{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin:0;font-weight:400}
+.repo-grp.whole .checks{opacity:.45;pointer-events:none}tr.off td{opacity:.7}
 .checks{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:4px 12px;margin-top:6px}.checks label{font-weight:400;margin:0;display:flex;gap:6px;align-items:center}
 details summary{cursor:pointer;color:var(--green);font-weight:600}
 .table-wrap{overflow-x:auto}
@@ -683,6 +795,11 @@ var L = <?php echo json_encode( array(
 			?>
 			<div class="card" style="border-color:#e6cf7a">
 				<h2><?php echo __( 'Yeni site anahtarı:' ); ?> <?php echo $e( $args['new_name'] ); ?></h2>
+				<?php if ( ! empty( $args['issued'] ) ) : ?>
+				<p><?php echo $e( _f( 'Site bu anahtarı bir sonraki güncelleme kontrolünde kendiliğinden alır (%d gün içinde; hemen almak için sitede Ayarlar › Flux Updater › "Bağlantıyı test et"). Elle girmeniz gerekmez.', Server::CLAIM_DAYS ) ); ?></p>
+				<p><b><?php echo __( 'Şimdi erişimini seçin:' ); ?></b> <a href="#<?php echo $e( self::key_anchor( (string) $args['issued'] ) ); ?>"><?php echo __( 'Anahtarlı siteler' ); ?> › <?php echo $e( $args['new_name'] ); ?></a>. <?php echo __( 'Seçene kadar site yalnız public paketleri görür.' ); ?></p>
+				<details><summary class="small"><?php echo __( 'Anahtarı elle girmek için göster' ); ?></summary>
+				<?php endif; ?>
 				<p><?php echo __( '<b>Bu anahtar bir daha gösterilmez.</b> Şimdi kopyalayın ve sitenin <b>WordPress › Ayarlar › Flux Updater</b> ekranında <i>Site anahtarı</i> alanına yapıştırın. Sunucu adresi:' ); ?></p>
 				<pre><?php echo $e( $this->server->base_url() ); ?></pre>
 				<p><?php echo __( 'Site anahtarı:' ); ?></p>
@@ -692,6 +809,7 @@ var L = <?php echo json_encode( array(
 					<form method="post"><?php echo $this->hidden( 'test_key' ); ?><input type="hidden" name="key" value="<?php echo $e( $key ); ?>"><button class="btn sec sm"><?php echo __( 'Bu anahtarı test et' ); ?></button></form>
 				</div>
 				<p class="muted small"><?php echo __( 'Sunucu artık bu anahtarın yalnız özetini (sha256) saklar. Kaybederseniz siteyi silip yeni anahtar üretin.' ); ?></p>
+				<?php if ( ! empty( $args['issued'] ) ) : ?></details><?php endif; ?>
 			</div>
 			<?php
 		}
@@ -770,6 +888,8 @@ var L = <?php echo json_encode( array(
 				<tr><th><?php echo __( 'Site' ); ?></th><th><?php echo __( 'Durum' ); ?></th><th><?php echo __( 'Kurulu paketler' ); ?></th><th><?php echo __( 'İzin' ); ?></th><th></th></tr>
 				<?php foreach ( $sites as $hash => $conf ) : ?>
 					<?php
+					$off  = isset( $conf['active'] ) && ! $conf['active'];
+					$pend = is_array( $conf['pending'] ?? null ) ? $conf['pending'] : null;
 					$st  = $states[ $hash ] ?? array();
 					$ts  = (int) ( $st['last_seen_ts'] ?? 0 );
 					$pkg = array();
@@ -779,11 +899,18 @@ var L = <?php echo json_encode( array(
 						$pkg[]  = $e( $slug ) . ' <b style="color:' . ( $old ? 'var(--amber)' : 'var(--green)' ) . '">' . $e( $ver ) . '</b>' . ( $old ? ' <span class="muted">→ ' . $e( $latest ) . '</span>' : '' );
 					}
 					?>
-					<tr>
+					<tr id="<?php echo $e( self::key_anchor( (string) $hash ) ); ?>"<?php echo $off ? ' class="off"' : ''; ?>>
 						<td><b><?php echo $e( $conf['name'] ?? '?' ); ?></b><br><span class="small muted"><?php echo $e( $st['url'] ?? '' ); ?></span>
 							<?php if ( ! empty( $st['wp'] ) ) : ?><br><span class="small muted">WP <?php echo $e( $st['wp'] ); ?> · PHP <?php echo $e( $st['php'] ?? '' ); ?></span><?php endif; ?></td>
 						<td>
-							<?php if ( ! $ts && empty( $st['last_seen'] ) ) : ?>
+							<?php if ( $off ) : ?>
+								<span class="pill err"><?php echo __( 'Pasif' ); ?></span><br>
+							<?php endif; ?>
+							<?php if ( $pend && (int) $pend['exp'] < time() ) : ?>
+								<span class="pill err"><?php echo __( 'Teslim süresi doldu' ); ?></span>
+							<?php elseif ( $pend ) : ?>
+								<span class="pill warn" title="<?php echo $e( __( 'Site bir sonraki kontrolde anahtarı kendiliğinden alacak.' ) ); ?>"><?php echo __( 'Teslim bekliyor' ); ?></span>
+							<?php elseif ( ! $ts && empty( $st['last_seen'] ) ) : ?>
 								<span class="pill muted"><?php echo __( 'Hiç bağlanmadı' ); ?></span>
 							<?php elseif ( $ts && time() - $ts > 2 * DAY_SECONDS ) : ?>
 								<span class="pill warn"><?php echo $e( _f( '%d gündür yok', (int) floor( ( time() - $ts ) / DAY_SECONDS ) ) ); ?></span>
@@ -793,15 +920,21 @@ var L = <?php echo json_encode( array(
 							<br><span class="small muted"><?php echo $e( $st['last_seen'] ?? '' ); ?></span>
 						</td>
 						<td class="small"><?php echo $pkg ? implode( '<br>', $pkg ) : '<span class="muted">—</span>'; ?></td>
-						<td class="small"><?php echo '*' === ( $conf['packages'] ?? '*' ) ? __( 'Tüm private paketler' ) : $e( implode( ', ', (array) $conf['packages'] ) ); ?><br><span class="muted"><?php echo 'beta' === ( $conf['channel'] ?? '' ) ? __( 'Beta dahil' ) : __( 'Kararlı' ); ?></span></td>
+						<td class="small"><?php echo $this->scope_label( $conf, $catalog ); ?><br><span class="muted"><?php echo 'beta' === ( $conf['channel'] ?? '' ) ? __( 'Beta dahil' ) : __( 'Kararlı' ); ?></span></td>
 						<td>
 							<?php if ( 'panel' === ( $conf['source'] ?? '' ) ) : ?>
-								<details><summary><?php echo __( 'Düzenle' ); ?></summary>
+								<form method="post" class="inline">
+									<?php echo $this->hidden( 'toggle_site' ); ?>
+									<input type="hidden" name="hash" value="<?php echo $e( $hash ); ?>">
+									<input type="hidden" name="on" value="<?php echo $off ? '1' : ''; ?>">
+									<button class="btn sm <?php echo $off ? '' : 'sec'; ?>"><?php echo $off ? __( 'Aktif yap' ) : __( 'Pasif yap' ); ?></button>
+								</form>
+								<details<?php echo ( $args['issued'] ?? '' ) === $hash ? ' open' : ''; ?>><summary><?php echo __( 'Erişimi düzenle' ); ?></summary>
 									<form method="post" style="min-width:240px">
 										<?php echo $this->hidden( 'update_site' ); ?>
 										<input type="hidden" name="hash" value="<?php echo $e( $hash ); ?>">
 										<label><?php echo __( 'Ad' ); ?></label><input type="text" name="name" value="<?php echo $e( $conf['name'] ?? '' ); ?>">
-										<?php $this->packages_field( $catalog, $conf['packages'] ?? '*' ); ?>
+										<?php $this->packages_field( $catalog, $conf['packages'] ?? '*', (array) ( $conf['repos'] ?? array() ) ); ?>
 										<label><?php echo __( 'Kanal' ); ?></label>
 										<select name="channel"><option value="stable"><?php echo __( 'Kararlı' ); ?></option><option value="beta" <?php echo 'beta' === ( $conf['channel'] ?? '' ) ? 'selected' : ''; ?>><?php echo __( 'Beta dahil' ); ?></option></select>
 										<p><button class="btn sm"><?php echo __( 'Kaydet' ); ?></button></p>
@@ -1111,14 +1244,23 @@ var L = <?php echo json_encode( array(
 			<?php else : ?>
 			<div class="table-wrap"><table>
 				<tr><th><?php echo __( 'Site' ); ?></th><th><?php echo __( 'Erişim' ); ?></th><th><?php echo __( 'Ülke' ); ?></th><th><?php echo __( 'Ortam' ); ?></th><th class="n"><?php echo __( 'Paket' ); ?></th><th class="n"><?php echo __( 'İstek' ); ?></th><th><?php echo __( 'Son' ); ?></th></tr>
-				<?php $i = 0; foreach ( $S['clients'] as $c ) : ?>
+				<?php
+				$pending = array();
+				foreach ( (array) $this->config['sites'] as $h => $conf ) {
+					if ( ! empty( $conf['pending']['ih'] ) && (int) ( $conf['pending']['exp'] ?? 0 ) >= time() ) {
+						$pending[ $conf['pending']['ih'] ] = (string) $h;
+					}
+				}
+				$i = 0;
+				foreach ( $S['clients'] as $cid => $c ) :
+					?>
 					<?php
 					$host = (string) parse_url( (string) ( $c['url'] ?? '' ), PHP_URL_HOST );
 					$path = rtrim( (string) parse_url( (string) ( $c['url'] ?? '' ), PHP_URL_PATH ), '/' );
 					?>
 					<tr<?php echo ++$i > 15 ? ' class="more" hidden' : ''; ?>>
 						<td><b><?php echo $e( '' !== $host ? $host . $path : 'Adres bildirmedi' ); ?></b><?php if ( ! empty( $c['name'] ) ) : ?><br><span class="small muted"><?php echo $e( $c['name'] ); ?></span><?php endif; ?></td>
-						<td><?php echo ! empty( $c['key'] ) ? '<span class="pill ok">' . __( 'Anahtarlı' ) . '</span>' : '<span class="pill muted">Public</span>'; ?></td>
+						<td><?php echo $this->client_access( (string) $cid, $c, $pending ); ?></td>
 						<td class="small"><?php echo ! empty( $c['cc'] ) ? '<b class="cc">' . $e( $c['cc'] ) . '</b>' . $e( self::country_name( (string) $c['cc'] ) ) : '<span class="muted">—</span>'; ?></td>
 						<td class="small muted"><?php echo $e( trim( ( $c['wp'] ? 'WP ' . $c['wp'] : '' ) . ( $c['php'] ? ' · PHP ' . $c['php'] : '' ) ) ); ?><?php if ( ! empty( $c['upd'] ) ) : ?><br>Updater <?php echo $e( $c['upd'] ); ?><?php endif; ?></td>
 						<td class="n" title="<?php echo $e( implode( ', ', array_keys( (array) ( $c['pk'] ?? array() ) ) ) ); ?>"><?php echo self::n( count( (array) ( $c['pk'] ?? array() ) ) ); ?></td>
@@ -1135,6 +1277,31 @@ var L = <?php echo json_encode( array(
 		</div>
 		<?php
 		$this->view_resources();
+	}
+
+	/** "Bağlanan siteler" erişim hücresi: anahtarlı/pasif ise anahtar satırına bağlantı, anahtarsızsa "Anahtar ver". */
+	private function client_access( string $cid, array $c, array $pending ): string {
+		$e = array( __CLASS__, 'e' );
+		if ( ! empty( $c['key'] ) ) {
+			$hash = '';
+			foreach ( array_keys( (array) $this->config['sites'] ) as $h ) {
+				if ( 'k' . substr( (string) $h, 0, 15 ) === $cid ) {
+					$hash = (string) $h;
+					break;
+				}
+			}
+			$pill = ! empty( $c['off'] ) ? '<span class="pill err">' . $e( __( 'Pasif' ) ) . '</span>' : '<span class="pill ok">' . $e( __( 'Anahtarlı' ) ) . '</span>';
+			return '' !== $hash ? '<a href="#' . $e( self::key_anchor( $hash ) ) . '" title="' . $e( __( 'Anahtar ayarları' ) ) . '">' . $pill . '</a>' : $pill;
+		}
+		$out = '<span class="pill muted">Public</span>';
+		$ih  = (string) ( $c['ih'] ?? '' );
+		if ( '' === $ih ) {
+			return $out . '<br><span class="small muted" title="' . $e( __( 'Otomatik anahtar teslimi için sitede Flux Updater 1.7.0 ya da üstü gerekir.' ) ) . '">' . $e( __( 'Updater 1.7.0+ gerekli' ) ) . '</span>';
+		}
+		if ( isset( $pending[ $ih ] ) ) {
+			return '<a href="#' . $e( self::key_anchor( $pending[ $ih ] ) ) . '"><span class="pill warn">' . $e( __( 'Teslim bekliyor' ) ) . '</span></a>';
+		}
+		return $out . '<form method="post" class="inline give">' . $this->hidden( 'issue_key' ) . '<input type="hidden" name="client" value="' . $e( $cid ) . '"><button class="btn sm">' . $e( __( 'Anahtar ver' ) ) . '</button></form>';
 	}
 
 	private static function meter( float $used, float $total, string $tone = '' ): string {
@@ -1239,24 +1406,49 @@ var L = <?php echo json_encode( array(
 		<?php
 	}
 
-	private function packages_field( array $catalog, $current ): void {
-		$all = '*' === $current;
-		$sel = $all ? array() : (array) $current;
-		$id  = 'p' . bin2hex( random_bytes( 3 ) );
+	/**
+	 * Private erişim: "tümü" ya da seçim. Seçimde her private depo için "depodaki tümü"
+	 * (sonradan eklenen paketler dahil) ve depo altında tek tek paketler.
+	 */
+	private function packages_field( array $catalog, $current, array $repos = array() ): void {
+		$all    = '*' === $current;
+		$sel    = $all ? array() : (array) $current;
+		$rsel   = array_map( 'strtolower', $repos );
+		$id     = 'p' . bin2hex( random_bytes( 3 ) );
+		$groups = array();
+		foreach ( $this->server->private_repos() as $r ) {
+			$groups[ strtolower( $r ) ] = array( 'repo' => $r, 'items' => array() );
+		}
+		foreach ( $catalog as $slug => $r ) {
+			if ( ! empty( $r['public'] ) ) {
+				continue;
+			}
+			$k = strtolower( (string) ( $r['repo'] ?? '' ) );
+			if ( ! isset( $groups[ $k ] ) ) {
+				$groups[ $k ] = array( 'repo' => (string) ( $r['repo'] ?? '' ), 'items' => array() );
+			}
+			$groups[ $k ]['items'][ $slug ] = $r;
+		}
 		?>
-		<label><?php echo __( 'Private paketler' ); ?> <span class="muted small"><?php echo __( '(public paketler her siteye açık)' ); ?></span></label>
-		<select name="scope" onchange="document.getElementById('<?php echo self::e( $id ); ?>').style.display=this.value==='all'?'none':'grid'">
+		<label><?php echo __( 'Private erişim' ); ?> <span class="muted small"><?php echo __( '(public paketler her siteye açık)' ); ?></span></label>
+		<select name="scope" onchange="document.getElementById('<?php echo self::e( $id ); ?>').style.display=this.value==='all'?'none':'block'">
 			<option value="all" <?php echo $all ? 'selected' : ''; ?>><?php echo __( 'Tüm private paketler (yeni eklenenler dahil)' ); ?></option>
-			<option value="some" <?php echo $all ? '' : 'selected'; ?>><?php echo __( 'Yalnız seçilenler' ); ?></option>
+			<option value="some" <?php echo $all ? '' : 'selected'; ?>><?php echo __( 'Seçilen depolar ve paketler' ); ?></option>
 		</select>
-		<div class="checks" id="<?php echo self::e( $id ); ?>" style="display:<?php echo $all ? 'none' : 'grid'; ?>">
-			<?php foreach ( $catalog as $slug => $r ) : ?>
-				<?php
-				if ( ! empty( $r['public'] ) ) {
-					continue;
-				}
-				?>
-				<label><input type="checkbox" name="packages[]" value="<?php echo self::e( $slug ); ?>" <?php echo ( in_array( $slug, $sel, true ) || 'flx-updater' === $slug ) ? 'checked' : ''; ?> <?php echo 'flx-updater' === $slug ? 'disabled' : ''; ?>> <?php echo self::e( $r['name'] ); ?></label>
+		<div class="scope" id="<?php echo self::e( $id ); ?>" style="display:<?php echo $all ? 'none' : 'block'; ?>">
+			<?php if ( ! $groups ) : ?>
+				<p class="small muted"><?php echo __( 'Private depo yok.' ); ?></p>
+			<?php endif; ?>
+			<?php foreach ( $groups as $k => $g ) : ?>
+				<?php $whole = in_array( $k, $rsel, true ); ?>
+				<fieldset class="repo-grp<?php echo $whole ? ' whole' : ''; ?>">
+					<label class="repo-all"><input type="checkbox" name="repos[]" value="<?php echo self::e( $g['repo'] ); ?>" <?php echo $whole ? 'checked' : ''; ?> onchange="this.closest('fieldset').classList.toggle('whole',this.checked)"> <b><?php echo self::e( $g['repo'] ); ?></b> <span class="muted small"><?php echo self::e( _f( 'tümü, %d paket + sonradan eklenenler', count( $g['items'] ) ) ); ?></span></label>
+					<div class="checks">
+						<?php foreach ( $g['items'] as $slug => $r ) : ?>
+							<label><input type="checkbox" name="packages[]" value="<?php echo self::e( $slug ); ?>" <?php echo ( in_array( $slug, $sel, true ) || 'flx-updater' === $slug ) ? 'checked' : ''; ?> <?php echo 'flx-updater' === $slug ? 'disabled' : ''; ?>> <?php echo self::e( $r['name'] ); ?></label>
+						<?php endforeach; ?>
+					</div>
+				</fieldset>
 			<?php endforeach; ?>
 		</div>
 		<?php
@@ -1277,9 +1469,12 @@ var L = <?php echo json_encode( array(
 			echo '<p><span class="pill err">' . $e( __( 'Geçersiz' ) ) . '</span> ' . $e( __( 'Bu anahtar kayıtlı bir siteye ait değil.' ) ) . '</p></div>';
 			return;
 		}
+		$off     = isset( $found['active'] ) && ! $found['active'];
 		$site    = array(
 			'packages' => $found['packages'] ?? '*',
+			'repos'    => (array) ( $found['repos'] ?? array() ),
 			'channel'  => ( $found['channel'] ?? 'stable' ) === 'beta' ? 'beta' : 'stable',
+			'anon'     => $off,
 		);
 		$visible = array();
 		foreach ( ( 'beta' === $site['channel'] ? $catalog : $stable ) as $slug => $r ) {
@@ -1288,7 +1483,7 @@ var L = <?php echo json_encode( array(
 			}
 		}
 		$seen = $states[ $hash ]['last_seen'] ?? '';
-		echo '<p><span class="pill ok">' . $e( __( 'Geçerli' ) ) . '</span> <b>' . $e( $found['name'] ?? '' ) . '</b> · ' . ( 'beta' === $site['channel'] ? __( 'Beta dahil' ) : __( 'Kararlı' ) ) . '</p>';
+		echo '<p>' . ( $off ? '<span class="pill err">' . $e( __( 'Pasif' ) ) . '</span> ' : '' ) . '<span class="pill ok">' . $e( __( 'Geçerli' ) ) . '</span> <b>' . $e( $found['name'] ?? '' ) . '</b> · ' . ( 'beta' === $site['channel'] ? __( 'Beta dahil' ) : __( 'Kararlı' ) ) . '</p>';
 		echo '<p class="small">' . $e( _f( 'Görebileceği paketler (%d):', count( $visible ) ) ) . ' ' . $e( implode( ', ', $visible ) ?: '—' ) . '</p>';
 		echo '<p class="small">' . $e( $seen ? _f( 'Site en son %s bağlandı.', $seen ) : __( 'Site henüz bağlanmadı: WordPress › Ayarlar › Flux Updater › "Bağlantıyı test et".' ) ) . '</p>';
 		echo '</div>';

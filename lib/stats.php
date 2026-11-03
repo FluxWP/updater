@@ -6,7 +6,8 @@
  *
  * data/stats.json:
  *   days    => { "Y-m-d": { c: kontrol, a: anahtarsız kontrol, d: indirme, b: bayt, s: {site_id: 1}, p: {slug: indirme} } }
- *   clients => { site_id: { url, name, key, cc, wp, php, upd, pk: {slug: sürüm}, first, last, n } }
+ *   clients => { site_id: { url, name, key, off, ih, cc, wp, php, upd, pk: {slug: sürüm}, first, last, n } }
+ *   ih: Flux Updater 1.7.0+ kurulum kimliğinin sha256 özeti (panelden anahtar vermek için).
  */
 
 namespace FLXUpdate;
@@ -30,7 +31,7 @@ final class Stats {
 
 	/** Site kimliği: anahtarlı site anahtar özetinden, anahtarsız site adresinden. */
 	public static function client_id( array $site, string $url ): string {
-		if ( empty( $site['anon'] ) && ! empty( $site['hash'] ) ) {
+		if ( ! empty( $site['hash'] ) ) {
 			return 'k' . substr( (string) $site['hash'], 0, 15 );
 		}
 		$u = strtolower( preg_replace( '#^https?://(www\.)?#i', '', rtrim( $url, '/' ) ) );
@@ -45,6 +46,7 @@ final class Stats {
 		}
 		$id   = self::client_id( $site, $url );
 		$anon = ! empty( $site['anon'] );
+		$ih   = Server::install_hash( (string) ( $body['install'] ?? '' ) );
 		$cc   = self::country( $body );
 		$pkgs = array();
 		foreach ( (array) ( $body['packages'] ?? array() ) as $slug => $ver ) {
@@ -56,7 +58,7 @@ final class Stats {
 			}
 		}
 		$this->update(
-			function ( array $all ) use ( $id, $anon, $url, $cc, $pkgs, $site, $body ) {
+			function ( array $all ) use ( $id, $anon, $url, $cc, $pkgs, $site, $body, $ih ) {
 				$day = gmdate( 'Y-m-d' );
 				$d   = $all['days'][ $day ] ?? array();
 				$d['c'] = (int) ( $d['c'] ?? 0 ) + 1;
@@ -68,8 +70,28 @@ final class Stats {
 
 				$c        = $all['clients'][ $id ] ?? array( 'first' => time(), 'n' => 0 );
 				$c['url'] = '' !== $url ? $url : ( $c['url'] ?? '' );
-				$c['name'] = $anon ? '' : (string) ( $site['name'] ?? '' );
-				$c['key'] = ! $anon;
+				$c['name'] = (string) ( $site['name'] ?? '' );
+				$c['key']  = '' !== (string) ( $site['hash'] ?? '' );
+				$c['off']  = ! empty( $site['disabled'] );
+				if ( '' !== $ih ) {
+					$c['ih'] = $ih;
+					// Anahtar alan site: aynı kurulumun anahtarsız kaydı bu kayda katılır.
+					if ( $c['key'] ) {
+						foreach ( (array) ( $all['clients'] ?? array() ) as $oid => $o ) {
+							if ( $oid !== $id && empty( $o['key'] ) && ( $o['ih'] ?? '' ) === $ih ) {
+								$c['first'] = min( (int) ( $c['first'] ?? time() ), (int) ( $o['first'] ?? time() ) );
+								$c['n']     = (int) ( $c['n'] ?? 0 ) + (int) ( $o['n'] ?? 0 );
+								unset( $all['clients'][ $oid ] );
+								foreach ( $all['days'] ?? array() as $day => $d ) {
+									if ( isset( $d['s'][ $oid ] ) ) {
+										unset( $all['days'][ $day ]['s'][ $oid ] );
+										$all['days'][ $day ]['s'][ $id ] = 1;
+									}
+								}
+							}
+						}
+					}
+				}
 				if ( '' !== $cc ) {
 					$c['cc'] = $cc;
 				}
@@ -83,6 +105,12 @@ final class Stats {
 				return $all;
 			}
 		);
+	}
+
+	/** Tek kayıt (panelden anahtar verirken). */
+	public function client( string $id ): ?array {
+		$c = $this->read()['clients'][ $id ] ?? null;
+		return is_array( $c ) ? $c : null;
 	}
 
 	/** İndirilen zip. */
