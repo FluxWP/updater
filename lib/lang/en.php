@@ -197,4 +197,7 @@ return array(
 	'Site henüz bağlanmadı: WordPress › Ayarlar › Flux Updater › "Bağlantıyı test et".' => 'Site has not connected yet: WordPress › Settings › Flux Updater › "Test connection".',
 	'%s site' => '%s sites',
 	'Sunucu verisi (data/)' => 'Server data (data/)',
+	'Makine diski (paylaşımlı)' => 'Machine disk (shared)',
+	'Paylaşımlı hosting\'de PHP sunucudaki tüm hesapların ortak diskini görür; bu sizin kotanız değil. Kotayı hosting panelinden (Hostinger: hPanel › Hesap kaynakları) görün.' => 'On shared hosting PHP sees the disk shared by every account on the machine; this is not your quota. Check your quota in the hosting panel (Hostinger: hPanel › Account resources).',
+	'Makine yükü, paylaşımlı (1/5/15 dk)' => 'Machine load, shared (1/5/15 min)',
 );
