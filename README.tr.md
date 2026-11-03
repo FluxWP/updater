@@ -52,7 +52,7 @@ Güncellemek için yeni zip'i üstüne açın. Ayarlar zip'te olmayan `data/sett
 ### Site anahtarları
 
 - Sunucuda anahtarın yalnız sha256'sı durur. Kaybedilen anahtar geri alınamaz; siteyi silip yeniden ekleyin.
-- **Bağlı siteye anahtar ver:** Genel bakış › Bağlanan siteler'de anahtarsız bağlanan sitenin satırında "Anahtar ver" var. Site anahtarı bir sonraki kontrolde (ya da FluxWP Panel'da "Bağlantıyı test et" ile hemen) alır. FluxWP Panel 1.7.0+ gerekir: eklenti yalnız bu sunucuya rastgele bir kurulum kimliği gönderir, anahtar yalnız o kimliği taşıyan isteğe teslim edilir; site adresini taklit eden alamaz. 7 gün içinde alınmayan anahtarın süresi dolar.
+- **Bağlı siteye anahtar ver:** Genel bakış › Bağlanan siteler'de anahtarsız bağlanan sitenin satırında "Anahtar ver" var. Site anahtarı bir sonraki kontrolde (ya da FluxWP Panel'de "Bağlantıyı test et" ile hemen) alır. FluxWP Panel 1.7.0+ gerekir: eklenti yalnız bu sunucuya rastgele bir kurulum kimliği gönderir, anahtar yalnız o kimliği taşıyan isteğe teslim edilir; site adresini taklit eden alamaz. 7 gün içinde alınmayan anahtarın süresi dolar.
 - **Aktif/pasif:** pasif anahtarlı site tanınır ama yalnız public paketleri görür; sitede "anahtar sunucuda pasif" yazar.
 - **Kapsam:** "Tüm private paketler" ya da seçilen depolar ve paketler. Bir depoda "tümü" işaretlenirse sonradan eklenen paketler de girer.
 
