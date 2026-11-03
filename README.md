@@ -89,6 +89,14 @@ panelde salt okunur görünür. Panelden girilen değerler `config.php`'yi ezer.
 | `POST /v1/webhook` | `X-Hub-Signature-256` imzalı; release önbelleğini boşaltır |
 | `GET /admin` | yönetim paneli (`/status` buraya yönlenir) |
 
+### Siteye anahtar verme, aktif/pasif, kapsam (1.9.0)
+
+- **Anahtar ver:** Genel bakış › Bağlanan siteler'de anahtarsız (Public) bağlanan sitenin satırında "Anahtar ver" butonu var. Basınca o siteye özel anahtar oluşur ve site bir sonraki güncelleme kontrolünde anahtarı kendiliğinden alıp kaydeder (sitede Ayarlar › Flux Updater › "Bağlantıyı test et" ile hemen). Elle girmek isterseniz anahtar o ekranda bir kez gösterilir.
+- **Güvenlik:** Flux Updater 1.7.0+ her sunucu için rastgele bir kurulum kimliği üretip yalnız o sunucuya gönderir; sunucu bunun yalnız sha256 özetini saklar. Anahtar yalnız bu kimliği taşıyan isteğe teslim edilir, site adresini taklit eden alamaz. Anahtar düz olarak saklanmaz (sunucu gizli değeri + kurulum kimliğinden türetilir). Teslim 7 gün içinde yapılmazsa süresi dolar; yeniden "Anahtar ver" denebilir. Anahtarsız erişim kapalıyken de teslim yapılır.
+- **Aktif/pasif:** Anahtarlı siteler'de her anahtar "Pasif yap" ile kapatılır. Pasif anahtarlı site tanınmaya devam eder ama yalnız public paketleri görür; sitede "anahtar sunucuda pasif" yazar.
+- **Kapsam:** "Erişimi düzenle"de "Tüm private paketler" ya da "Seçilen depolar ve paketler". Seçimde her private depo için "tümü" (sonradan eklenen paketler dahil) işaretlenebilir, diğer depolardan tek tek paket eklenebilir.
+- Eski Flux Updater (1.7.0 öncesi) kurulum kimliği göndermez; satırda "Updater 1.7.0+ gerekli" yazar. Bu sitelere "Site ekle" ile anahtar üretip elle girin.
+
 ### Panel: genel bakış, kaynaklar, dil (1.8.0)
 
 - **Genel bakış:** son 7/30/90 günde güncelleme denetleyen siteler (anahtarlı ve anahtarsız), kontrol isteği, indirme,

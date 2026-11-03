@@ -9,7 +9,7 @@
 
 namespace FLXUpdate;
 
-const VERSION = '1.8.4';
+const VERSION = '1.9.0';
 const DAY_SECONDS = 86400;
 
 class HttpError extends \Exception {}
@@ -116,8 +116,6 @@ final class Server {
 	/* ------------------------------------------------------------------ */
 
 	private function route_check( string $method ): void {
-		$site = $this->auth_site();
-		$this->maybe_prune();
 		$body = array();
 		if ( 'POST' === $method ) {
 			$raw  = (string) file_get_contents( 'php://input', false, null, 0, 262144 );
@@ -126,6 +124,20 @@ final class Server {
 				$body = array();
 			}
 		}
+		// Panelden "Anahtar ver" denen site: anahtar, kurulum kimliği eşleşen anahtarsız isteğe teslim edilir.
+		$assigned = '' === $this->request_key() ? $this->assigned_key( (string) ( $body['install'] ?? '' ) ) : '';
+		try {
+			$site = $this->auth_site();
+		} catch ( HttpError $e ) {
+			if ( '' === $assigned ) {
+				throw $e;
+			}
+			// Anahtarsız erişim kapalı olsa da teslim yapılır; site anahtarla yeniden sorar.
+			$this->stats()->record_check( array( 'anon' => true ), $body );
+			$this->json( array( 'ok' => true, 'site' => '', 'public' => true, 'packages' => array(), 'assigned_key' => $assigned ) );
+			return;
+		}
+		$this->maybe_prune();
 
 		$catalog  = $this->catalog( $site['channel'], $site );
 		$versions = $this->versions( $site['channel'], $site );
@@ -149,11 +161,21 @@ final class Server {
 			);
 		}
 
-		if ( empty( $site['anon'] ) ) {
+		if ( '' !== $site['hash'] ) {
 			$this->remember_site( $site, $body );
+			if ( ! empty( $site['pending'] ) ) {
+				$this->claimed( $site['hash'] );
+			}
 		}
 		$this->stats()->record_check( $site, $body );
-		$this->json( array( 'ok' => true, 'site' => $site['name'], 'public' => ! empty( $site['anon'] ), 'packages' => $out ) );
+		$res = array( 'ok' => true, 'site' => $site['name'], 'public' => ! empty( $site['anon'] ), 'packages' => $out );
+		if ( ! empty( $site['disabled'] ) ) {
+			$res['key_disabled'] = true;
+		}
+		if ( '' !== $assigned ) {
+			$res['assigned_key'] = $assigned;
+		}
+		$this->json( $res );
 	}
 
 	/* ------------------------------------------------------------------ */
@@ -829,13 +851,17 @@ final class Server {
 	 * Anahtarsız istek: yalnız public paketleri gören anonim site. Anahtar verildiyse
 	 * geçerli olmalı (yanlış anahtar sessizce public'e düşmez, site hatayı görür).
 	 */
-	private function auth_site(): array {
+	private function request_key(): string {
 		$key  = $_SERVER['HTTP_X_FLUXWP_SITE_KEY'] ?? ( $_SERVER['HTTP_X_FLX_SITE_KEY'] ?? '' );
 		$auth = $_SERVER['HTTP_AUTHORIZATION'] ?? ( $_SERVER['REDIRECT_HTTP_AUTHORIZATION'] ?? '' );
 		if ( '' === $key && preg_match( '/^Bearer\s+(\S+)$/i', $auth, $m ) ) {
 			$key = $m[1];
 		}
-		$key = trim( (string) $key );
+		return trim( (string) $key );
+	}
+
+	private function auth_site(): array {
+		$key = $this->request_key();
 		if ( '' === $key ) {
 			if ( ! $this->public_repos() ) {
 				throw new HttpError( 'Missing site key', 401 );
@@ -844,6 +870,7 @@ final class Server {
 				'hash'     => '',
 				'name'     => '',
 				'packages' => array(),
+				'repos'    => array(),
 				'channel'  => 'stable',
 				'anon'     => true,
 			);
@@ -854,12 +881,22 @@ final class Server {
 		$hash = hash( 'sha256', $key );
 		foreach ( $this->config['sites'] as $h => $conf ) {
 			if ( hash_equals( strtolower( (string) $h ), $hash ) ) {
-				return array(
+				$site = array(
 					'hash'     => $hash,
 					'name'     => (string) ( $conf['name'] ?? 'Site' ),
 					'packages' => $conf['packages'] ?? '*',
+					'repos'    => (array) ( $conf['repos'] ?? array() ),
 					'channel'  => ( $conf['channel'] ?? 'stable' ) === 'beta' ? 'beta' : 'stable',
+					'pending'  => ! empty( $conf['pending'] ),
 				);
+				// Pasif anahtar: site tanınır ama yalnız public paketleri görür.
+				if ( isset( $conf['active'] ) && ! $conf['active'] ) {
+					$site['anon']     = true;
+					$site['disabled'] = true;
+					$site['packages'] = array();
+					$site['repos']    = array();
+				}
+				return $site;
 			}
 		}
 		usleep( 500000 );
@@ -867,19 +904,79 @@ final class Server {
 		throw new HttpError( 'Invalid site key', 403 );
 	}
 
-	public function site_allows( array $site, string $slug ): bool {
+	/**
+	 * Anahtarın private pakete izni: "*" tüm private depolar; yoksa depo bütünüyle
+	 * (repos, sonradan eklenen paketler dahil) ya da tek tek seçilen paket (packages).
+	 */
+	public function site_allows( array $site, array $release ): bool {
 		if ( ! empty( $site['anon'] ) ) {
 			return false;
 		}
-		if ( '*' === $site['packages'] ) {
+		if ( '*' === ( $site['packages'] ?? '*' ) ) {
 			return true;
 		}
-		return in_array( $slug, (array) $site['packages'], true );
+		$repo = strtolower( (string) ( $release['repo'] ?? '' ) );
+		foreach ( (array) ( $site['repos'] ?? array() ) as $r ) {
+			if ( '' !== $repo && strtolower( (string) $r ) === $repo ) {
+				return true;
+			}
+		}
+		return in_array( (string) $release['slug'], (array) $site['packages'], true );
 	}
 
 	/** Public depodaki paket herkese; private depodaki yalnız izinli anahtara. */
 	public function can_see( array $site, array $release ): bool {
-		return ! empty( $release['public'] ) || $this->site_allows( $site, (string) $release['slug'] );
+		return ! empty( $release['public'] ) || $this->site_allows( $site, $release );
+	}
+
+	/* ------------------------------------------------------------------ */
+	/* Panelden verilen anahtarın siteye teslimi                           */
+	/* ------------------------------------------------------------------ */
+
+	const CLAIM_DAYS = 7;
+
+	/**
+	 * Teslim bekleyen anahtar, sunucunun gizli değeri ve kurulum kimliği özetinden türetilir;
+	 * düz anahtar hiçbir yerde saklanmaz. Kurulum kimliğini yalnız site bilir (sunucu özetini tutar).
+	 */
+	public static function derive_key( string $secret, string $ih, string $nonce ): string {
+		return 'flxu_' . substr( hash_hmac( 'sha256', 'claim|' . $ih . '|' . $nonce, $secret ), 0, 48 );
+	}
+
+	/** Kurulum kimliğinin özeti (stats ve bekleyen anahtar bunu tutar). */
+	public static function install_hash( string $install ): string {
+		return preg_match( '/^[a-f0-9]{40}$/', $install ) ? hash( 'sha256', $install ) : '';
+	}
+
+	/** Bu kurulum kimliğine verilmiş, süresi dolmamış anahtar ('' yoksa). */
+	private function assigned_key( string $install ): string {
+		$ih = self::install_hash( $install );
+		if ( '' === $ih || '' === (string) ( $this->config['secret'] ?? '' ) ) {
+			return '';
+		}
+		foreach ( (array) $this->config['sites'] as $h => $conf ) {
+			$p = is_array( $conf['pending'] ?? null ) ? $conf['pending'] : null;
+			if ( ! $p || ! hash_equals( (string) ( $p['ih'] ?? '' ), $ih ) || (int) ( $p['exp'] ?? 0 ) < time() ) {
+				continue;
+			}
+			$key = self::derive_key( (string) $this->config['secret'], $ih, (string) ( $p['n'] ?? '' ) );
+			if ( hash_equals( strtolower( (string) $h ), hash( 'sha256', $key ) ) ) {
+				$this->log( 'key-delivered', (string) ( $conf['name'] ?? '' ) );
+				return $key;
+			}
+		}
+		return '';
+	}
+
+	/** Site anahtarla bağlandı: teslim tamam. */
+	private function claimed( string $hash ): void {
+		$s     = Settings::load( $this->data_dir );
+		$sites = is_array( $s['sites'] ?? null ) ? $s['sites'] : array();
+		if ( isset( $sites[ $hash ]['pending'] ) ) {
+			unset( $sites[ $hash ]['pending'] );
+			$sites[ $hash ]['claimed'] = gmdate( 'Y-m-d H:i' ) . ' UTC';
+			Settings::update( $this->data_dir, array( 'sites' => $sites ) );
+		}
 	}
 
 	/** @return string[] owner/repo listesi (virgül, boşluk ya da satır ile ayrılmış metin de olur). */
