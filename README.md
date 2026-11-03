@@ -1,146 +1,121 @@
+<div align="center">
+
+**English** · [Türkçe](README.tr.md)
+
 # FluxWP Update Server
 
-GitHub release'lerini WordPress sitelerine "güncelleme var" olarak sunan, kendi sunucunuzda çalışan
-güncelleme sunucusu. FluxWP'nin resmi sunucusu `https://updater.fluxwp.com`; aynı kodla kendi sunucunuzu da kurabilirsiniz.
+A small PHP server that turns GitHub releases into WordPress updates. Sites running **Flux Updater** see your private and public themes and plugins on the normal **Dashboard › Updates** screen.
 
-- **Public depolar**: paketleri herkese **anahtarsız** sunulur.
-- **Private depolar**: paketleri yalnız **site anahtarıyla**, anahtara tanımlı paketler kadar görünür.
+![PHP 7.4+](https://img.shields.io/badge/PHP-7.4%2B-777bb4?logo=php&logoColor=white) ![No database](https://img.shields.io/badge/database-none-2fbf8f) ![Shared hosting](https://img.shields.io/badge/runs%20on-shared%20hosting-21759b) ![Docker](https://img.shields.io/badge/Docker-optional-2496ed?logo=docker&logoColor=white)
 
-Varsayılan depo yoktur: depolar /admin › GitHub kartından seçilir. Bir depo yalnız Public'e eklenirse anahtarsız dağıtılır.
+</div>
 
-GitHub token yalnız bu sunucuda durur; siteler Flux Updater eklentisiyle bağlanır.
+The official FluxWP server is `https://updater.fluxwp.com`. The same code runs your own server.
+
+- **Public repositories**: packages are served to everyone, no key needed.
+- **Private repositories**: packages are served only with a **site key**, limited to the packages assigned to that key.
+
+There are no default repositories. You pick them in /admin › GitHub; a repository added only to Public is served without a key. The GitHub token stays on this server and never reaches the sites.
 
 ```
-GitHub depoları (push → Actions → <slug>-v<sürüm> release + <slug>.zip)
-        │ token (private depolar, Contents: Read-only)
+GitHub repositories (push → Actions → <slug>-v<version> release + <slug>.zip)
+        │ token (private repositories, Contents: Read-only)
         ▼
-update server   /admin (panel) · /v1/check · /v1/download/<slug>/<sürüm>.zip · /v1/app/* · /v1/webhook
-        ▲ anahtarsız: public paketler · X-FluxWP-Site-Key: + anahtarın private paketleri
-WordPress siteleri (Flux Updater)
+update server   /admin (panel) · /v1/check · /v1/download/<slug>/<version>.zip · /v1/app/* · /v1/webhook
+        ▲ no key: public packages · X-FluxWP-Site-Key: + the key's private packages
+WordPress sites (Flux Updater)
 ```
 
-Tüm ayarlar **/admin** panelinden girilir; `config.php` gerekmez.
+Everything is set in the **/admin** panel; `config.php` is not needed.
 
-## Kurulum (Hostinger, zip)
+## Install (shared hosting, zip)
 
-1. hPanel'de bir subdomain açın (ör. `updater.example.com` (normal PHP sitesi, PHP 7.4+), SSL'i açın.
-2. [Releases](../../releases/latest) sayfasından `flx-update-server.zip`'i indirin, Dosya Yöneticisi'nde
-   subdomain'in kök klasörüne yükleyip açın.
-3. Hemen `https://<subdomain>/admin` adresini açın › **İlk kurulum**: kullanıcı adı + parola.
-   (İlk kurulumu yapan yönetici olur; zip'i açar açmaz yapın.)
-4. **GitHub** kartı: private ve public depoları yazın, token'ı yapıştırın › *Kaydet ve test et* › **Bağlı** görünmeli.
-   Token: GitHub › Settings › Developer settings › Fine-grained tokens › yalnız private depolar,
-   Repository permissions › **Contents: Read-only**. Yalnız public depo sunacaksanız token gerekmez.
-5. **Site ekle**: ad, private paketler (hepsi ya da seçili), kanal › *Anahtar üret*. Anahtar **bir kez** gösterilir;
-   kopyalayın, *Bu anahtarı test et* ile deneyin.
-6. Sitede: `flx-updater.zip`'i bir kez kurun › **Ayarlar › Flux Updater** › anahtarı yapıştırın
-   › *Kaydet ve kontrol et* › **Bağlı**. Eklentinin varsayılan sunucusu `https://updater.fluxwp.com`; kendi sunucunuzu
-   kullanıyorsanız adresini yazın. Anahtarsız site yalnız public paketleri görür.
-7. (İsteğe bağlı) **Anında yayın** › *Secret üret* › paket deposu › Settings › Secrets › Actions'a
-   `UPDATE_WEBHOOK_SECRET` adıyla ekleyin. Yoksa yeni sürüm en geç 5 dakikada görünür.
+1. Create a subdomain (e.g. `updater.example.com`) as a plain PHP 7.4+ site and turn on SSL.
+2. Download `flx-update-server.zip` from [Releases](../../releases/latest) and extract it into the subdomain's root folder.
+3. Open `https://<subdomain>/admin` right away and complete **First-time setup** (username + password). Whoever does this first becomes the admin.
+4. **GitHub** card: pick the private and public repositories, paste the token, then *Save and test*. It should show **Connected**.
+   Token: GitHub › Settings › Developer settings › Fine-grained tokens, only the private repositories, **Contents: Read-only**. Public-only servers need no token.
+5. **Add site**: name, private packages (all or selected), channel, then *Generate key*. The key is shown **once**; copy it and check it with *Test this key*.
+6. On the WordPress site: install `flx-updater.zip` once, open **Settings › Flux Updater**, paste the key and *Save and check*. The plugin uses `https://updater.fluxwp.com` by default; enter your own address if you run your own server. A site without a key sees only public packages.
+7. Optional, **instant publish**: *Generate secret*, then add it to the package repository under Settings › Secrets › Actions as `UPDATE_WEBHOOK_SECRET`. Without it a new version shows up within 5 minutes.
 
-Sonraki sürümlerde aynı zip'i üstüne açmanız yeterli: ayarlar `data/settings.json`'da, zip'te yok, korunur.
+To upgrade, extract the new zip over the old one. Settings live in `data/settings.json`, which is not in the zip. `data/` must be writable.
 
-Panelde: GitHub durumu, siteler (bağlı mı, son görülme, kurulu sürümler), site düzenle/sil
-(silinen sitenin anahtarı hemen çalışmaz), paket listesi, parola değiştirme.
-Sunucuda anahtarın kendisi değil yalnız sha256'sı durur. Anahtarı kaybederseniz siteyi silip yenisini ekleyin.
+### Check
 
-`data/` yazılabilir olmalı.
+- `https://<server>/` returns `{"ok":true,…,"configured":true,"public":true}`
+- `https://<server>/data/settings.json` returns 403
+- `https://<server>/admin` shows the login page
 
-## Kontrol
+## Features
 
-- `https://<sunucu>/` → `{"ok":true,…,"configured":true,"public":true}`
-- `https://<sunucu>/data/settings.json` → 403
-- `https://<sunucu>/admin` → giriş sayfası
+### Site keys
 
-## Docker / Coolify (isteğe bağlı)
+- Only the key's sha256 is stored. A lost key cannot be recovered: delete the site and add it again.
+- **Issue a key to a connected site:** under Overview › Connected sites, a site that connected without a key gets an "Issue key" button. The site picks the key up on its next update check (or right away with "Test connection" in Flux Updater). Needs Flux Updater 1.7.0+, which sends a random install ID only to this server; the key is handed only to a request carrying that ID, so a site that fakes another site's address cannot take it. An unclaimed key expires after 7 days.
+- **Enable/disable:** "Disable" turns a key off. A disabled key still identifies the site but only unlocks public packages; the site shows "key disabled on server".
+- **Scope:** "All private packages", or selected repositories and packages. Ticking "all" for a repository also covers packages added later.
 
-Build Pack: **Dockerfile**, kalıcı depolama `/var/www/html/data`. Ayarlar yine /admin'den girilebilir;
-isterseniz ortam değişkeni de olur (panel değerleri bunları ezer):
+### Panel
 
-| Değişken | Açıklama |
-|---|---|
-| `FLX_UPDATE_GITHUB_TOKEN` | GitHub token |
-| `FLX_UPDATE_SITES` | JSON: `{"<sha256>":{"name":"…","packages":"*","channel":"stable"}}` (panelde salt okunur) |
-| `FLX_UPDATE_WEBHOOK_SECRET` | webhook secret |
-| `FLX_UPDATE_ADMIN_USER` / `FLX_UPDATE_ADMIN_PASSWORD` | panel girişi (ilk kurulum yerine) |
-| `FLX_UPDATE_BASE_URL` | boşsa istekten bulunur |
-| `FLX_UPDATE_REPO` | private depolar, virgülle |
-| `FLX_UPDATE_PUBLIC_REPOS` | public depolar, virgülle (boşsa anahtarsız güncelleme kapalı) |
-| `FLX_UPDATE_CACHE_TTL` | release önbelleği, sn (300) |
-| `FLX_UPDATE_DATA_DIR` | varsayılan `./data` |
-| `FLX_UPDATE_LANG` | panelin varsayılan dili: `en` (varsayılan) ya da `tr` |
+- **Overview:** sites that checked for updates in the last 7/30/90 days (with and without a key), checks, downloads, data sent, a daily chart, installs per package, a country map and the connected sites. Stored in `data/stats.json` (daily totals 120 days, sites 180 days after last seen). IPs are not stored; the country comes from the site's WordPress time zone (Flux Updater 1.6.1+) or Cloudflare's `CF-IPCountry`.
+- **Resources:** disk, `data/` breakdown, GitHub API quota, package cache age, PHP limits. Old zips and the access log are cleaned from here.
+- **Repository picker:** private, public and app repositories are chosen as tags from the list GitHub returns for the token. Type `owner/repo` and press Enter to add one that is not listed.
+- **Language:** English (default) and Turkish, switched with EN/TR at the top.
 
-Eski `config.php` varsa çalışmaya devam eder: oradaki parola ile giriş yapılır, oradaki siteler
-panelde salt okunur görünür. Panelden girilen değerler `config.php`'yi ezer.
+### Packages
 
-## Uç noktalar
+- Public packages are served without a key, except beta versions. With a key, the key's private packages are added to the same response.
+- If a repository cannot be read, its packages come from the last known list and the GitHub card shows "Unreadable".
+- `/v1/check` returns `requires_plugins` for every package (the `Requires Plugins:` header), so Flux Updater can install missing plugins together.
+- A version containing `-` (e.g. `1.3.0-beta.1`) is visible only on the beta channel.
+
+### Zip storage
+
+`data/zips` keeps the last 5 versions of each package. An older version is fetched from the GitHub release again and deleted 24 hours after its last download. Cleanup runs after each download and once an hour; the limits are in /admin › Files. Nothing is deleted while GitHub is unreachable.
+
+### App updates
+
+- **Mobile/desktop app:** releases tagged `v<version>` in the app repository (panel › GitHub › App repository). File names decide the platform: `*windows*`, `*macos*`, `*.apk`, `*ios*`.
+- **FluxWP desktop:** `fluxapp-v<version>` releases in the package repository (or `FLX_UPDATE_FLUXAPP_REPO`). File names carry the brand: `fluxapp-<brand>-<version>-macos-universal.dmg`, `.app.tar.gz`, `.app.tar.gz.sig` (uploaded by `fluxapp-desktop.yml` in FluxWP/FluxWP). The app asks the `tauri` endpoint and installs signed bundles in the background.
+
+## Endpoints
 
 | | |
 |---|---|
-| `GET /v1/health` | durum |
-| `POST /v1/check` | anahtarsız: public paketler; site anahtarıyla: + izinli private paketler. Yanlış anahtar 403 |
-| `GET /v1/download/<slug>/<sürüm>.zip` | public paket anahtarsız, private paket site anahtarıyla; zip'i GitHub'dan bir kez alıp `data/zips`'te saklar |
-| `GET /v1/app/latest?channel=stable\|beta` | herkese açık; uygulamanın son sürümü ve platform dosyaları |
-| `GET /v1/app/download/<tag>/<dosya>` | herkese açık; GitHub'ın kısa ömürlü indirme adresine 302 (dosya bu sunucuda tutulmaz) |
-| `GET /v1/fluxapp/<marka>/latest?channel=stable\|beta` | herkese açık; FluxWP masaüstü son sürümü (dmg + güncelleme paketi) |
-| `GET /v1/fluxapp/<marka>/tauri/<target>/<arch>/<sürüm>` | herkese açık; Tauri updater biçimi (imzalı `.app.tar.gz`), yeni sürüm yoksa 204 |
-| `GET /v1/fluxapp/download/<tag>/<dosya>` | herkese açık; GitHub indirme adresine 302 |
-| `POST /v1/webhook` | `X-Hub-Signature-256` imzalı; release önbelleğini boşaltır |
-| `GET /admin` | yönetim paneli (`/status` buraya yönlenir) |
+| `GET /v1/health` | status |
+| `POST /v1/check` | no key: public packages; with a site key: plus allowed private packages. Wrong key: 403 |
+| `GET /v1/download/<slug>/<version>.zip` | public package without a key, private package with a site key; cached in `data/zips` |
+| `GET /v1/app/latest?channel=stable\|beta` | public; latest app version and platform files |
+| `GET /v1/app/download/<tag>/<file>` | public; 302 to GitHub's short-lived download URL |
+| `GET /v1/fluxapp/<brand>/latest?channel=stable\|beta` | public; latest FluxWP desktop (dmg + update bundle) |
+| `GET /v1/fluxapp/<brand>/tauri/<target>/<arch>/<version>` | public; Tauri updater format, 204 if there is no newer version |
+| `GET /v1/fluxapp/download/<tag>/<file>` | public; 302 to the GitHub download URL |
+| `POST /v1/webhook` | signed with `X-Hub-Signature-256`; clears the release cache |
+| `GET /admin` | admin panel (`/status` redirects here) |
 
-### Siteye anahtar verme, aktif/pasif, kapsam (1.9.0)
+## Docker / Coolify (optional)
 
-- **Anahtar ver:** Genel bakış › Bağlanan siteler'de anahtarsız (Public) bağlanan sitenin satırında "Anahtar ver" butonu var. Basınca o siteye özel anahtar oluşur ve site bir sonraki güncelleme kontrolünde anahtarı kendiliğinden alıp kaydeder (sitede Ayarlar › Flux Updater › "Bağlantıyı test et" ile hemen). Elle girmek isterseniz anahtar o ekranda bir kez gösterilir.
-- **Güvenlik:** Flux Updater 1.7.0+ her sunucu için rastgele bir kurulum kimliği üretip yalnız o sunucuya gönderir; sunucu bunun yalnız sha256 özetini saklar. Anahtar yalnız bu kimliği taşıyan isteğe teslim edilir, site adresini taklit eden alamaz. Anahtar düz olarak saklanmaz (sunucu gizli değeri + kurulum kimliğinden türetilir). Teslim 7 gün içinde yapılmazsa süresi dolar; yeniden "Anahtar ver" denebilir. Anahtarsız erişim kapalıyken de teslim yapılır.
-- **Aktif/pasif:** Anahtarlı siteler'de her anahtar "Pasif yap" ile kapatılır. Pasif anahtarlı site tanınmaya devam eder ama yalnız public paketleri görür; sitede "anahtar sunucuda pasif" yazar.
-- **Kapsam:** "Erişimi düzenle"de "Tüm private paketler" ya da "Seçilen depolar ve paketler". Seçimde her private depo için "tümü" (sonradan eklenen paketler dahil) işaretlenebilir, diğer depolardan tek tek paket eklenebilir.
-- Eski Flux Updater (1.7.0 öncesi) kurulum kimliği göndermez; satırda "Updater 1.7.0+ gerekli" yazar. Bu sitelere "Site ekle" ile anahtar üretip elle girin.
+Build pack **Dockerfile**, persistent storage `/var/www/html/data`. Settings can still be entered in /admin; environment variables work too, and panel values override them.
 
-### Panel: genel bakış, kaynaklar, dil (1.8.0)
+| Variable | Description |
+|---|---|
+| `FLX_UPDATE_GITHUB_TOKEN` | GitHub token |
+| `FLX_UPDATE_REPO` | private repositories, comma separated |
+| `FLX_UPDATE_PUBLIC_REPOS` | public repositories, comma separated (empty: no keyless updates) |
+| `FLX_UPDATE_APP_REPO` | app repository (tags `v<version>`) |
+| `FLX_UPDATE_FLUXAPP_REPO` | FluxWP desktop repository, if not the package repository |
+| `FLX_UPDATE_SITES` | JSON: `{"<sha256>":{"name":"…","packages":"*","channel":"stable"}}` (read-only in the panel) |
+| `FLX_UPDATE_WEBHOOK_SECRET` | webhook secret |
+| `FLX_UPDATE_ADMIN_USER` / `FLX_UPDATE_ADMIN_PASSWORD` | panel login (instead of first setup); `FLX_UPDATE_ADMIN_PASSWORD_HASH` takes a `password_hash()` value |
+| `FLX_UPDATE_BASE_URL` | taken from the request if empty |
+| `FLX_UPDATE_CACHE_TTL` | release cache in seconds (300) |
+| `FLX_UPDATE_DATA_DIR` | default `./data` |
+| `FLX_UPDATE_LANG` | panel default language: `en` (default) or `tr` |
 
-- **Genel bakış:** son 7/30/90 günde güncelleme denetleyen siteler (anahtarlı ve anahtarsız), kontrol isteği, indirme,
-  aktarılan veri, günlük grafik, paketlerin kaç sitede kurulu olduğu, ülke haritası ve bağlanan sitelerin listesi.
-  Veriler `data/stats.json`'da durur (günlük toplamlar 120 gün, siteler son görülmeden 180 gün). IP saklanmaz; ülke sitenin
-  WordPress saat diliminden (Flux Updater 1.6.1+ gönderir) ya da Cloudflare'in `CF-IPCountry` başlığından bulunur.
-- **Kaynaklar:** disk, `data/` dağılımı (zip, önbellek, istatistik, günlük), GitHub API kotası, paket önbelleğinin yaşı, PHP sınırları.
-  Eski zipler ve erişim günlüğü buradan temizlenir.
-- **Depo seçici:** private, public ve uygulama depoları etiket olarak seçilir; liste GitHub'dan gelir (token'ın eriştiği
-  depolar + kayıtlı sahiplerin public depoları, 10 dk önbellek). Listede olmayan `owner/repo` yazılıp Enter ile eklenir.
-- **Dil:** panel İngilizce (varsayılan) ve Türkçe. Giriş ekranında ya da üstteki EN/TR ile seçilir, tarayıcıda hatırlanır.
-  Çeviriler `lib/lang/en.php`'de (anahtar Türkçe kaynak metin).
+An old `config.php` keeps working: its password logs in and its sites show read-only in the panel.
 
-### Public paketler (1.7.0)
-
-Sunucu artık anahtarsız sitelere de cevap verir: public depolardaki paketler herkese
-açıktır, beta sürümleri hariç. Site anahtarı girilmişse aynı yanıta anahtara tanımlı private paketler eklenir.
-Panelde "Private paketler" seçimi yalnız private depoları kapsar. Public depo listesi boşaltılırsa sunucu eskisi gibi
-yalnız anahtarla çalışır. Bir depo okunamazsa yalnız o deponun paketleri son bilinen listeden gelir; GitHub kartında
-"Okunamadı" satırı çıkar. Site anahtarı `X-FluxWP-Site-Key` (eski `X-Flx-Site-Key` da olur) ya da `Authorization: Bearer` ile gelir.
-
-### Dosya saklama (1.6.0)
-
-`data/zips` sınırlıdır: paket başına son 5 sürümün zip'i kalır. Daha eski bir sürüm istenirse GitHub release'ten yeniden indirilir ve son indirmeden 24 saat sonra silinir. Temizlik her indirmeden sonra o paket için, saatte bir de tüm paketler için kendiliğinden yapılır; /admin › Dosyalar'dan sayılar değiştirilir ve "Şimdi temizle" ile hemen çalışır. GitHub okunamazsa hiçbir dosya silinmez.
-
-### Gerekli eklentiler (1.5.0)
-
-`/v1/check` her paket için `requires_plugins` da döndürür (paketin `Requires Plugins:` başlığı, release notundaki
-`flx-meta` satırından). Flux Updater 1.3.0 bununla kurmadan önce eksik eklentileri gösterir ve birlikte kurar.
-1.5.0'a geçerken yalnız `lib/server.php` değişir.
-
-### Uygulama güncellemeleri (1.3.0)
-
-Masaüstü/mobil uygulama `FluxWP/app` deposunun `v<sürüm>` release'lerinden güncellenir (panel › GitHub › Uygulama deposu). Depo private olduğundan token'ın bu depoyu da okuyabilmesi gerekir (fine-grained token › Repository access'e uygulama deposunu ekleyin). Dosya adı platformu belirler: `*windows*`, `*macos*`, `*.apk` (Android), `*ios*`. `-` içeren sürüm (ör. `0.3.0-beta.1`) yalnız beta kanalında görünür.
-
-### FluxWP masaüstü güncellemeleri (1.4.0)
-
-FluxWP, paket deposundaki (`repo`, ayrı depo için `FLX_UPDATE_FLUXAPP_REPO`) `fluxapp-v<sürüm>` release'lerinden
-güncellenir. Dosya adları markayı taşır: `fluxapp-<marka>-<sürüm>-macos-universal.dmg`, `.app.tar.gz`, `.app.tar.gz.sig`
-(FluxWP/fluxwp `fluxapp-desktop.yml` böyle yükler). Uygulama `tauri` ucunu sorar; imzalı paket varsa arka planda
-indirip yeniden başlatınca kurar, yoksa `latest` ucundaki dmg adresini açar. Sürümünde `-` olan (beta) yalnız beta kanalında.
-Ek ayar gerekmez; mevcut token paket deposunu zaten okuyor.
-
-## Nginx
+### Nginx
 
 ```
 location ~ ^/(config\.php|config\.sample\.php|lib/|data/|bin/|\.) { deny all; }
@@ -148,22 +123,22 @@ location / { try_files $uri /index.php$is_args$args; }
 location = /index.php { include fastcgi_params; fastcgi_param SCRIPT_FILENAME $document_root/index.php; fastcgi_pass php; }
 ```
 
-## Sorun giderme
+## Troubleshooting
 
-| Belirti | Bakılacak yer |
+| Symptom | Where to look |
 |---|---|
-| Sitede "Could not resolve host" | Sunucu adresi yanlış ya da subdomain/DNS henüz yok. Resmi sunucu: `https://updater.fluxwp.com` |
-| Sitede "Site anahtarı geçersiz" | /admin › *Var olan bir anahtarı test et*; site silindiyse yeniden ekleyin |
-| Sitede "HTTP 502" | /admin › GitHub kartı kırmızı mı: token süresi dolmuş/yanlış |
-| Yeni sürüm görünmüyor | Paket deposunun Actions işi yeşil mi; /admin › *Paketleri yeniden oku* |
-| Kayıtlar | `data/access.log`, PHP hata günlüğü |
+| "Could not resolve host" on the site | Wrong server address, or the subdomain/DNS is not there yet. Official server: `https://updater.fluxwp.com` |
+| "Invalid site key" on the site | /admin › *Test an existing key*; add the site again if it was deleted |
+| "HTTP 502" on the site | Is the GitHub card red? The token expired or is wrong |
+| New version does not show up | Did the package repository's Actions run pass? /admin › *Reload packages* |
+| Logs | `data/access.log`, PHP error log |
 
-## Geliştirici
+## Maintainers
 
-FluxWP Update Server, **Ahmet Yılmaz** ([@sharkpaw](https://github.com/sharkpaw)) tarafından yürütülmekte ve geliştirilmektedir.
+FluxWP Update Server is led and maintained by **Ahmet Yılmaz** ([@sharkpaw](https://github.com/sharkpaw)).
 
-<table><tr><td align="center"><a href="https://github.com/sharkpaw"><img src="https://github.com/sharkpaw.png?size=120" width="64" alt="Ahmet Yılmaz"><br><b>Ahmet Yılmaz</b></a><br><sub>Proje lideri · Maintainer</sub></td></tr></table>
+<table><tr><td align="center"><a href="https://github.com/sharkpaw"><img src="https://github.com/sharkpaw.png?size=120" width="64" alt="Ahmet Yılmaz"><br><b>Ahmet Yılmaz</b></a><br><sub>Project lead · Maintainer</sub></td></tr></table>
 
-### Katkıda bulunanlar
+### Contributors
 
-Issue ve pull request'ler açıktır. Katkıda bulunanlar burada listelenecek.
+Issues and pull requests are welcome. Contributors will be listed here.
