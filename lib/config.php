@@ -5,11 +5,12 @@
  * Git'ten deploy edilen kurulumda (Coolify, Docker, hosting Git) yalnız ortam
  * değişkenleri yeterlidir; config.php hiç gerekmez.
  *
- *   FLX_UPDATE_REPO                  owner/repo (varsayılan FluxWP/fluxwp)
+ *   FLX_UPDATE_REPO                  private paket depoları, virgülle (varsayılan FluxWP/fluxwp); site anahtarıyla
+ *   FLX_UPDATE_PUBLIC_REPOS          public paket depoları, virgülle (varsayılan FluxWP/wp-extras); anahtarsız herkese
  *   FLX_UPDATE_APP_REPO              uygulama deposu (varsayılan FluxWP/app; tag v<sürüm>)
  *   FLX_UPDATE_GITHUB_TOKEN          fine-grained token, Contents: Read-only
  *   FLX_UPDATE_WEBHOOK_SECRET        Actions'taki UPDATE_WEBHOOK_SECRET ile aynı
- *   FLX_UPDATE_BASE_URL              https://update.yesilturkiyeist.org
+ *   FLX_UPDATE_BASE_URL              https://updater.fluxwp.com
  *   FLX_UPDATE_SITES                 JSON: {"<sha256>":{"name":"Örnek Vakfı","packages":"*","channel":"stable"}}
  *   FLX_UPDATE_ADMIN_USER            /admin kullanıcı adı (varsayılan admin)
  *   FLX_UPDATE_ADMIN_PASSWORD_HASH   password_hash() çıktısı  (ya da)
@@ -42,6 +43,7 @@ function load_config( string $root ): array {
 
 	$config = array(
 		'repo'                => (string) $env( 'FLX_UPDATE_REPO', 'FluxWP/fluxwp' ),
+		'public_repos'        => (string) $env( 'FLX_UPDATE_PUBLIC_REPOS', 'FluxWP/wp-extras' ),
 		'app_repo'            => (string) $env( 'FLX_UPDATE_APP_REPO', 'FluxWP/app' ),
 		'fluxapp_repo'        => (string) $env( 'FLX_UPDATE_FLUXAPP_REPO', '' ),
 		'github_token'        => (string) $env( 'FLX_UPDATE_GITHUB_TOKEN' ),
@@ -68,11 +70,6 @@ function load_config( string $root ): array {
 		}
 	}
 
-	// 1.0.x örneğindeki yanlış adres kopyalandıysa yok say: adres istekten bulunur.
-	if ( false !== stripos( (string) $config['base_url'], 'update.ustageliyor.org' ) ) {
-		$config['base_url'] = '';
-	}
-
 	// Dosya/ortamdan gelen siteler panelde salt okunur gösterilir.
 	foreach ( $config['sites'] as $h => $site ) {
 		if ( is_array( $site ) ) {
@@ -86,6 +83,10 @@ function load_config( string $root ): array {
 		if ( isset( $panel[ $k ] ) && (int) $panel[ $k ] > 0 ) {
 			$config[ $k ] = (int) $panel[ $k ];
 		}
+	}
+	// Public depolar panelde boşaltılabilir (yalnız anahtarlı sunucu): "-" kayıtlı.
+	if ( isset( $panel['public_repos'] ) && '' !== $panel['public_repos'] ) {
+		$config['public_repos'] = '-' === $panel['public_repos'] ? '' : $panel['public_repos'];
 	}
 	foreach ( array( 'github_token', 'repo', 'app_repo', 'fluxapp_repo', 'webhook_secret', 'admin_user', 'admin_password_hash', 'secret' ) as $k ) {
 		if ( isset( $panel[ $k ] ) && '' !== $panel[ $k ] ) {

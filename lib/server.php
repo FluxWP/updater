@@ -1,14 +1,15 @@
 <?php
 /**
- * Flux Update Server: private GitHub release'lerini WordPress sitelerine sunar.
+ * FluxWP Update Server: GitHub release'lerini WordPress sitelerine sunar.
  *
- * GitHub token yalnız bu sunucuda durur. Siteler kendi site anahtarlarıyla
- * sürüm bilgisini sorar ve zip'i buradan indirir.
+ * Public depolardaki paketler herkese anahtarsız açıktır. Private depolardaki
+ * paketler yalnız site anahtarıyla, anahtara tanımlı paketler kadar görünür.
+ * GitHub token yalnız bu sunucuda durur.
  */
 
 namespace FLXUpdate;
 
-const VERSION = '1.6.0';
+const VERSION = '1.7.0';
 const DAY_SECONDS = 86400;
 
 class HttpError extends \Exception {}
@@ -24,6 +25,7 @@ final class Server {
 	public function __construct( array $config ) {
 		$this->config = $config + array(
 			'repo'                => '',
+			'public_repos'        => '',
 			'app_repo'            => '',
 			'fluxapp_repo'        => '',
 			'github_token'        => '',
@@ -54,7 +56,8 @@ final class Server {
 						'ok'         => true,
 						'service'    => 'flx-update-server',
 						'version'    => VERSION,
-						'configured' => '' !== (string) $this->config['github_token'] && ! empty( $this->config['sites'] ),
+						'configured' => ( '' !== (string) $this->config['github_token'] && ! empty( $this->config['sites'] ) ) || (bool) $this->public_repos(),
+						'public'     => (bool) $this->public_repos(),
 					)
 				);
 				return;
@@ -124,13 +127,10 @@ final class Server {
 			}
 		}
 
-		$catalog  = $this->catalog( $site['channel'] );
-		$versions = $this->versions( $site['channel'] );
+		$catalog  = $this->catalog( $site['channel'], $site );
+		$versions = $this->versions( $site['channel'], $site );
 		$out      = array();
 		foreach ( $catalog as $slug => $rel ) {
-			if ( ! $this->site_allows( $site, $slug ) ) {
-				continue;
-			}
 			$out[ $slug ] = array(
 				'slug'         => $slug,
 				'type'         => $rel['type'],
@@ -144,12 +144,15 @@ final class Server {
 				'changelog'    => $rel['changelog_html'],
 				'released'     => $rel['published_at'],
 				'size'         => $rel['size'],
+				'public'       => ! empty( $rel['public'] ),
 				'versions'     => $versions[ $slug ] ?? array(),
 			);
 		}
 
-		$this->remember_site( $site, $body );
-		$this->json( array( 'ok' => true, 'site' => $site['name'], 'packages' => $out ) );
+		if ( empty( $site['anon'] ) ) {
+			$this->remember_site( $site, $body );
+		}
+		$this->json( array( 'ok' => true, 'site' => $site['name'], 'public' => ! empty( $site['anon'] ), 'packages' => $out ) );
 	}
 
 	/* ------------------------------------------------------------------ */
@@ -157,19 +160,23 @@ final class Server {
 	/* ------------------------------------------------------------------ */
 
 	private function route_download( string $slug, string $version ): void {
-		$site = $this->auth_site();
-		if ( ! $this->site_allows( $site, $slug ) ) {
-			throw new HttpError( 'Package not allowed for this site', 403 );
-		}
-
+		$site    = $this->auth_site();
 		$release = null;
+		$denied  = false;
 		foreach ( $this->releases() as $r ) {
-			if ( $r['slug'] === $slug && $r['version'] === $version ) {
+			if ( $r['slug'] !== $slug || $r['version'] !== $version || ! $r['asset_id'] ) {
+				continue;
+			}
+			if ( $this->can_see( $site, $r ) ) {
 				$release = $r;
 				break;
 			}
+			$denied = true;
 		}
-		if ( ! $release || ! $release['asset_id'] ) {
+		if ( ! $release && $denied ) {
+			throw new HttpError( empty( $site['anon'] ) ? 'Package not allowed for this site' : 'Site key required', empty( $site['anon'] ) ? 403 : 401 );
+		}
+		if ( ! $release ) {
 			throw new HttpError( 'Version not found', 404 );
 		}
 		if ( $release['prerelease'] && 'beta' !== $site['channel'] ) {
@@ -178,12 +185,12 @@ final class Server {
 
 		$file = $this->zip_path( $slug, $version );
 		if ( ! is_file( $file ) || filesize( $file ) !== (int) $release['size'] ) {
-			$this->fetch_asset( (int) $release['asset_id'], $file );
+			$this->fetch_asset( (string) $release['repo'], (int) $release['asset_id'], $file, ! empty( $release['public'] ) );
 		}
 		@touch( $file ); // Eski sürüm: son indirmeden zip_temp_hours sonra silinir.
 		$this->prune_zips( $slug );
 
-		$this->log( 'download', $site['name'] . ' ' . $slug . ' ' . $version );
+		$this->log( 'download', ( empty( $site['anon'] ) ? $site['name'] : 'public' ) . ' ' . $slug . ' ' . $version );
 
 		header( 'Content-Type: application/zip' );
 		header( 'Content-Length: ' . filesize( $file ) );
@@ -277,7 +284,7 @@ final class Server {
 		return $this->data_dir . '/zips/' . $slug . '/' . $slug . '-' . preg_replace( '/[^0-9A-Za-z.+-]/', '', $version ) . '.zip';
 	}
 
-	private function fetch_asset( int $asset_id, string $file ): void {
+	private function fetch_asset( string $repo, int $asset_id, string $file, bool $public = false ): void {
 		$dir = dirname( $file );
 		if ( ! is_dir( $dir ) && ! mkdir( $dir, 0750, true ) && ! is_dir( $dir ) ) {
 			throw new \RuntimeException( 'Cannot create ' . $dir );
@@ -288,7 +295,7 @@ final class Server {
 			clearstatcache( true, $file );
 			$tmp = $file . '.part';
 			$fp  = fopen( $tmp, 'wb' );
-			$this->github( '/repos/' . $this->config['repo'] . '/releases/assets/' . $asset_id, 'application/octet-stream', $fp );
+			$this->github( '/repos/' . $repo . '/releases/assets/' . $asset_id, 'application/octet-stream', $fp, ! $public );
 			fclose( $fp );
 			$zip_magic = file_get_contents( $tmp, false, null, 0, 2 );
 			if ( 'PK' !== $zip_magic ) {
@@ -437,7 +444,7 @@ final class Server {
 
 	/** FluxWP release'lerinin deposu: boşsa paket deposu (repo). */
 	private function fluxapp_repo(): string {
-		return (string) ( $this->config['fluxapp_repo'] ?: $this->config['repo'] );
+		return (string) ( $this->config['fluxapp_repo'] ?: ( $this->private_repos()[0] ?? '' ) );
 	}
 
 	/** Kanal: "-" içeren sürüm (0.3.0-beta.1) yalnız beta'da. GitHub pre-release işareti kanalı belirlemez. */
@@ -651,8 +658,13 @@ final class Server {
 	/** GitHub'a token ile erişilebiliyor mu (önbelleği kullanmadan). */
 	public function test_github(): string {
 		try {
-			$repo = json_decode( $this->github( '/repos/' . $this->config['repo'] ), true );
-			return is_array( $repo ) && ! empty( $repo['full_name'] ) ? '' : 'Beklenmeyen yanıt';
+			foreach ( $this->repos() as $src ) {
+				$repo = json_decode( $this->github( '/repos/' . $src['repo'], 'application/vnd.github+json', null, ! $src['public'] ), true );
+				if ( ! is_array( $repo ) || empty( $repo['full_name'] ) ) {
+					return $src['repo'] . ': beklenmeyen yanıt';
+				}
+			}
+			return '';
 		} catch ( \Throwable $e ) {
 			return $e->getMessage();
 		}
@@ -662,15 +674,31 @@ final class Server {
 	/* Site doğrulama                                                      */
 	/* ------------------------------------------------------------------ */
 
+	/**
+	 * Anahtarsız istek: yalnız public paketleri gören anonim site. Anahtar verildiyse
+	 * geçerli olmalı (yanlış anahtar sessizce public'e düşmez, site hatayı görür).
+	 */
 	private function auth_site(): array {
-		$key = $_SERVER['HTTP_X_FLX_SITE_KEY'] ?? '';
+		$key  = $_SERVER['HTTP_X_FLUXWP_SITE_KEY'] ?? ( $_SERVER['HTTP_X_FLX_SITE_KEY'] ?? '' );
 		$auth = $_SERVER['HTTP_AUTHORIZATION'] ?? ( $_SERVER['REDIRECT_HTTP_AUTHORIZATION'] ?? '' );
 		if ( '' === $key && preg_match( '/^Bearer\s+(\S+)$/i', $auth, $m ) ) {
 			$key = $m[1];
 		}
 		$key = trim( (string) $key );
+		if ( '' === $key ) {
+			if ( ! $this->public_repos() ) {
+				throw new HttpError( 'Missing site key', 401 );
+			}
+			return array(
+				'hash'     => '',
+				'name'     => '',
+				'packages' => array(),
+				'channel'  => 'stable',
+				'anon'     => true,
+			);
+		}
 		if ( strlen( $key ) < 20 ) {
-			throw new HttpError( 'Missing site key', 401 );
+			throw new HttpError( 'Invalid site key', 403 );
 		}
 		$hash = hash( 'sha256', $key );
 		foreach ( $this->config['sites'] as $h => $conf ) {
@@ -689,10 +717,51 @@ final class Server {
 	}
 
 	public function site_allows( array $site, string $slug ): bool {
+		if ( ! empty( $site['anon'] ) ) {
+			return false;
+		}
 		if ( '*' === $site['packages'] ) {
 			return true;
 		}
 		return in_array( $slug, (array) $site['packages'], true );
+	}
+
+	/** Public depodaki paket herkese; private depodaki yalnız izinli anahtara. */
+	public function can_see( array $site, array $release ): bool {
+		return ! empty( $release['public'] ) || $this->site_allows( $site, (string) $release['slug'] );
+	}
+
+	/** @return string[] owner/repo listesi (virgül, boşluk ya da satır ile ayrılmış metin de olur). */
+	private static function repo_list( $value ): array {
+		$list = is_array( $value ) ? $value : preg_split( '/[\s,]+/', (string) $value );
+		$out  = array();
+		foreach ( (array) $list as $r ) {
+			$r = trim( (string) $r );
+			if ( preg_match( '#^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$#', $r ) ) {
+				$out[ strtolower( $r ) ] = $r;
+			}
+		}
+		return array_values( $out );
+	}
+
+	public function public_repos(): array {
+		return self::repo_list( $this->config['public_repos'] );
+	}
+
+	public function private_repos(): array {
+		return array_values( array_diff( self::repo_list( $this->config['repo'] ), $this->public_repos() ) );
+	}
+
+	/** Okunacak depolar: önce private (paketler), sonra public. */
+	public function repos(): array {
+		$out = array();
+		foreach ( $this->private_repos() as $r ) {
+			$out[] = array( 'repo' => $r, 'public' => false );
+		}
+		foreach ( $this->public_repos() as $r ) {
+			$out[] = array( 'repo' => $r, 'public' => true );
+		}
+		return $out;
 	}
 
 	private function remember_site( array $site, array $body ): void {
@@ -728,10 +797,10 @@ final class Server {
 	/**
 	 * Son sürümler: slug => release. $channel 'stable' ise pre-release'ler atlanır.
 	 */
-	public function catalog( string $channel ): array {
+	public function catalog( string $channel, ?array $site = null ): array {
 		$out = array();
 		foreach ( $this->releases() as $r ) {
-			if ( ! $r['asset_id'] || ( $r['prerelease'] && 'beta' !== $channel ) ) {
+			if ( ! $r['asset_id'] || ( $r['prerelease'] && 'beta' !== $channel ) || ( null !== $site && ! $this->can_see( $site, $r ) ) ) {
 				continue;
 			}
 			if ( ! isset( $out[ $r['slug'] ] ) || version_compare( $r['version'], $out[ $r['slug'] ]['version'], '>' ) ) {
@@ -745,10 +814,10 @@ final class Server {
 	/**
 	 * Paket başına indirilebilir sürümler (yeniden eskiye, en çok 20): sürüm geri alma için.
 	 */
-	public function versions( string $channel ): array {
+	public function versions( string $channel, ?array $site = null ): array {
 		$out = array();
 		foreach ( $this->releases() as $r ) {
-			if ( ! $r['asset_id'] || ( $r['prerelease'] && 'beta' !== $channel ) ) {
+			if ( ! $r['asset_id'] || ( $r['prerelease'] && 'beta' !== $channel ) || ( null !== $site && ! $this->can_see( $site, $r ) ) ) {
 				continue;
 			}
 			$out[ $r['slug'] ][] = array(
@@ -770,43 +839,63 @@ final class Server {
 	}
 
 	/**
-	 * Tüm release'ler (önbellekli). Tag biçimi: <slug>-v<sürüm>.
+	 * Tüm depoların release'leri (önbellekli). Tag biçimi: <slug>-v<sürüm>.
+	 * Okunamayan depo için önbellekteki eski liste kullanılır; diğerleri etkilenmez.
 	 */
 	public function releases(): array {
 		$file  = $this->data_dir . '/releases.json';
 		$cache = $this->read_json( $file );
-		if ( isset( $cache['at'], $cache['items'] ) && time() - (int) $cache['at'] < (int) $this->config['cache_ttl'] ) {
+		$sig   = md5( json_encode( $this->repos() ) );
+		if ( isset( $cache['at'], $cache['items'] ) && ( $cache['sig'] ?? '' ) === $sig && time() - (int) $cache['at'] < (int) $this->config['cache_ttl'] ) {
 			return $cache['items'];
 		}
 
-		try {
-			$items = array();
-			for ( $page = 1; $page <= 10; $page++ ) {
-				$list = json_decode( $this->github( '/repos/' . $this->config['repo'] . '/releases?per_page=100&page=' . $page ), true );
-				if ( ! is_array( $list ) || ! $list ) {
-					break;
-				}
-				foreach ( $list as $rel ) {
-					$parsed = $this->parse_release( $rel );
-					if ( $parsed ) {
-						$items[] = $parsed;
+		$items  = array();
+		$errors = array();
+		foreach ( $this->repos() as $src ) {
+			try {
+				$got = array();
+				for ( $page = 1; $page <= 10; $page++ ) {
+					$list = json_decode( $this->github( '/repos/' . $src['repo'] . '/releases?per_page=100&page=' . $page, 'application/vnd.github+json', null, ! $src['public'] ), true );
+					if ( ! is_array( $list ) || ! $list ) {
+						break;
+					}
+					foreach ( $list as $rel ) {
+						$parsed = is_array( $rel ) ? $this->parse_release( $rel ) : null;
+						if ( $parsed ) {
+							$got[] = $parsed + array(
+								'repo'   => $src['repo'],
+								'public' => $src['public'],
+							);
+						}
+					}
+					if ( count( $list ) < 100 ) {
+						break;
 					}
 				}
-				if ( count( $list ) < 100 ) {
-					break;
+				$items = array_merge( $items, $got );
+			} catch ( \Throwable $e ) {
+				// GitHub'a ulaşılamazsa bu deponun eski önbelleğiyle devam et.
+				error_log( '[flx-update] releases ' . $src['repo'] . ': ' . $e->getMessage() );
+				$errors[ $src['repo'] ] = $e->getMessage();
+				foreach ( (array) ( $cache['items'] ?? array() ) as $old ) {
+					if ( ( $old['repo'] ?? '' ) === $src['repo'] ) {
+						$items[] = $old;
+					}
 				}
 			}
-		} catch ( \Throwable $e ) {
-			// GitHub'a ulaşılamazsa eski önbellekle devam et.
-			error_log( '[flx-update] releases: ' . $e->getMessage() );
-			if ( isset( $cache['items'] ) ) {
-				return $cache['items'];
-			}
+		}
+		if ( $errors && count( $errors ) === count( $this->repos() ) && ! $items ) {
 			throw new HttpError( 'Release list unavailable', 502 );
 		}
 
-		$this->write_json( $file, array( 'at' => time(), 'items' => $items ) );
+		$this->write_json( $file, array( 'at' => time(), 'sig' => $sig, 'items' => $items, 'errors' => $errors ) );
 		return $items;
+	}
+
+	/** Son okumada hata veren depolar: repo => hata. */
+	public function repo_errors(): array {
+		return (array) ( $this->read_json( $this->data_dir . '/releases.json' )['errors'] ?? array() );
 	}
 
 	/** @param mixed $list Dizi ya da virgüllü metin. */
@@ -872,21 +961,24 @@ final class Server {
 	 * Asset indirmesinde GitHub başka bir host'a yönlendirir; curl Authorization
 	 * başlığını başka host'a taşımaz (doğru davranış).
 	 */
-	private function github( string $path, string $accept = 'application/vnd.github+json', $sink = null ): string {
+	private function github( string $path, string $accept = 'application/vnd.github+json', $sink = null, bool $need_token = true ): string {
 		$token = (string) $this->config['github_token'];
-		if ( '' === $token ) {
+		if ( '' === $token && $need_token ) {
 			throw new \RuntimeException( 'github_token is empty' );
+		}
+		$headers = array(
+			'Accept: ' . $accept,
+			'X-GitHub-Api-Version: 2022-11-28',
+			'User-Agent: flx-update-server/' . VERSION,
+		);
+		if ( '' !== $token ) {
+			$headers[] = 'Authorization: Bearer ' . $token;
 		}
 		$ch = curl_init( rtrim( $this->config['github_api'], '/' ) . $path );
 		curl_setopt_array(
 			$ch,
 			array(
-				CURLOPT_HTTPHEADER     => array(
-					'Accept: ' . $accept,
-					'Authorization: Bearer ' . $token,
-					'X-GitHub-Api-Version: 2022-11-28',
-					'User-Agent: flx-update-server/' . VERSION,
-				),
+				CURLOPT_HTTPHEADER     => $headers,
 				CURLOPT_FOLLOWLOCATION => true,
 				CURLOPT_MAXREDIRS      => 5,
 				CURLOPT_CONNECTTIMEOUT => 10,
