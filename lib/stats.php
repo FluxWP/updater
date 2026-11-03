@@ -6,7 +6,8 @@
  *
  * data/stats.json:
  *   days    => { "Y-m-d": { c: kontrol, a: anahtarsız kontrol, d: indirme, b: bayt, s: {site_id: 1}, p: {slug: indirme} } }
- *   clients => { site_id: { url, name, key, off, ih, cc, wp, php, upd, pk: {slug: sürüm}, first, last, n } }
+ *   clients => { site_id: { url, name, key, off, ih, cc, wp, php, upd, use, pk: {slug: sürüm}, first, last, n } }
+ *   use: site kullanım verisi göndermeye izin verdi mi (vermediyse url, cc, wp, php boş).
  *   ih: Flux Updater 1.7.0+ kurulum kimliğinin sha256 özeti (panelden anahtar vermek için).
  */
 
@@ -29,25 +30,44 @@ final class Stats {
 		return $this->file;
 	}
 
-	/** Site kimliği: anahtarlı site anahtar özetinden, anahtarsız site adresinden. */
-	public static function client_id( array $site, string $url ): string {
+	/**
+	 * Site kimliği: anahtarlı site anahtar özetinden, anahtarsız site adresinden; adres yoksa
+	 * (kullanım verisi izni verilmemiş) rastgele kurulum kimliğinin özetinden. IP kimlik olarak kullanılmaz.
+	 */
+	public static function client_id( array $site, string $url, string $install_hash = '' ): string {
 		if ( ! empty( $site['hash'] ) ) {
 			return 'k' . substr( (string) $site['hash'], 0, 15 );
 		}
 		$u = strtolower( preg_replace( '#^https?://(www\.)?#i', '', rtrim( $url, '/' ) ) );
-		return 'u' . substr( hash( 'sha256', '' !== $u ? $u : (string) ( $_SERVER['REMOTE_ADDR'] ?? '' ) ), 0, 15 );
+		if ( '' !== $u ) {
+			return 'u' . substr( hash( 'sha256', $u ), 0, 15 );
+		}
+		return 'i' . substr( hash( 'sha256', '' !== $install_hash ? $install_hash : 'unknown' ), 0, 15 );
+	}
+
+	/**
+	 * Site kullanım verisi göndermeye izin verdi mi? FluxWP Panel 1.0.7+ "usage" alanını yollar;
+	 * alan yoksa eski istemcidir (adres ve sürümleri her zaman gönderir).
+	 */
+	public static function usage_allowed( array $body ): bool {
+		return ! array_key_exists( 'usage', $body ) || ! empty( $body['usage'] );
 	}
 
 	/** /v1/check isteğini işler. */
 	public function record_check( array $site, array $body ): void {
+		$usage = self::usage_allowed( $body );
+		if ( ! $usage ) {
+			// İzin yok: adres, WordPress/PHP sürümü, saat dilimi, dil ve ülke saklanmaz.
+			unset( $body['site'], $body['wp'], $body['php'], $body['tz'], $body['locale'] );
+		}
 		$url = substr( (string) ( $body['site'] ?? '' ), 0, 200 );
 		if ( '' !== $url && ! preg_match( '#^https?://#i', $url ) ) {
 			$url = '';
 		}
-		$id   = self::client_id( $site, $url );
 		$anon = ! empty( $site['anon'] );
 		$ih   = Server::install_hash( (string) ( $body['install'] ?? '' ) );
-		$cc   = self::country( $body );
+		$id   = self::client_id( $site, $url, $ih );
+		$cc   = $usage ? self::country( $body ) : '';
 		$pkgs = array();
 		foreach ( (array) ( $body['packages'] ?? array() ) as $slug => $ver ) {
 			if ( is_string( $slug ) && preg_match( '/^[a-z0-9-]{1,64}$/', $slug ) && is_scalar( $ver ) ) {
@@ -58,7 +78,7 @@ final class Stats {
 			}
 		}
 		$this->update(
-			function ( array $all ) use ( $id, $anon, $url, $cc, $pkgs, $site, $body, $ih ) {
+			function ( array $all ) use ( $id, $anon, $url, $cc, $pkgs, $site, $body, $ih, $usage ) {
 				$day = gmdate( 'Y-m-d' );
 				$d   = $all['days'][ $day ] ?? array();
 				$d['c'] = (int) ( $d['c'] ?? 0 ) + 1;
@@ -69,14 +89,16 @@ final class Stats {
 				$all['days'][ $day ] = $d;
 
 				$c        = $all['clients'][ $id ] ?? array( 'first' => time(), 'n' => 0 );
-				$c['url'] = '' !== $url ? $url : ( $c['url'] ?? '' );
+				$c['url'] = $usage && '' === $url ? (string) ( $c['url'] ?? '' ) : $url;
+				$c['use'] = $usage;
 				$c['name'] = (string) ( $site['name'] ?? '' );
 				$c['key']  = '' !== (string) ( $site['hash'] ?? '' );
 				$c['off']  = ! empty( $site['disabled'] );
 				if ( '' !== $ih ) {
 					$c['ih'] = $ih;
-					// Anahtar alan site: aynı kurulumun anahtarsız kaydı bu kayda katılır.
-					if ( $c['key'] ) {
+					// Anahtar alan site ya da izni geri alan site: aynı kurulumun eski anahtarsız kaydı
+					// (adresli olabilir) bu kayda katılır, eski kayıt silinir.
+					if ( $c['key'] || ! $usage ) {
 						foreach ( (array) ( $all['clients'] ?? array() ) as $oid => $o ) {
 							if ( $oid !== $id && empty( $o['key'] ) && ( $o['ih'] ?? '' ) === $ih ) {
 								$c['first'] = min( (int) ( $c['first'] ?? time() ), (int) ( $o['first'] ?? time() ) );
@@ -94,6 +116,8 @@ final class Stats {
 				}
 				if ( '' !== $cc ) {
 					$c['cc'] = $cc;
+				} elseif ( ! $usage ) {
+					unset( $c['cc'] );
 				}
 				$c['wp']   = substr( (string) ( $body['wp'] ?? '' ), 0, 20 );
 				$c['php']  = substr( (string) ( $body['php'] ?? '' ), 0, 20 );

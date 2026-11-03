@@ -74,6 +74,14 @@ To upgrade, extract the new zip over the old one. Settings live in `data/setting
 
 `data/zips` keeps the last 5 versions of each package. An older version is fetched from the GitHub release again and deleted 24 hours after its last download. Cleanup runs after each download and once an hour; the limits are in /admin › Files. Nothing is deleted while GitHub is unreachable.
 
+### Privacy: what a site sends
+
+Every `/v1/check` carries the installed FluxWP packages and versions, the FluxWP Panel version, a random install ID (one per server, not derived from the site) and the site key if there is one. This is what updates need.
+
+FluxWP Panel 1.0.7+ adds the site address, WordPress and PHP version, time zone and language only when the admin opted in ("Help improve FluxWP" in the setup wizard or FluxWP Panel › Settings), and sends `"usage": false` otherwise. Without opt-in the server stores none of those, does not derive a country (not even from `CF-IPCountry`), and identifies the site by its install ID. When a site withdraws, its earlier record with the address is merged and dropped on the next check. Older clients without the `usage` field are treated as opted in.
+
+IP addresses are not written to the statistics. `data/access.log` keeps the IP only for failed key attempts (security) and drops lines older than 90 days. Daily counters are kept 120 days, site records 180 days after the last check.
+
 ### App updates
 
 - **Mobile/desktop app:** releases tagged `v<version>` in the app repository (panel › GitHub › App repository). File names decide the platform: `*windows*`, `*macos*`, `*.apk`, `*ios*`.

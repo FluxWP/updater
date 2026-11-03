@@ -79,6 +79,14 @@ Güncellemek için yeni zip'i üstüne açın. Ayarlar zip'te olmayan `data/sett
 - **Mobil/masaüstü uygulama:** uygulama deposundaki `v<sürüm>` release'leri (panel › GitHub › Uygulama deposu). Dosya adı platformu belirler: `*windows*`, `*macos*`, `*.apk`, `*ios*`.
 - **FluxWP masaüstü:** paket deposundaki (ya da `FLX_UPDATE_FLUXAPP_REPO`) `fluxapp-v<sürüm>` release'leri. Dosya adı markayı taşır: `fluxapp-<marka>-<sürüm>-macos-universal.dmg`, `.app.tar.gz`, `.app.tar.gz.sig` (FluxWP/FluxWP `fluxapp-desktop.yml` yükler). Uygulama `tauri` ucunu sorar, imzalı paketi arka planda kurar.
 
+### Gizlilik: site ne gönderir
+
+Her `/v1/check` isteğinde kurulu FluxWP paketleri ve sürümleri, FluxWP Panel sürümü, rastgele kurulum kimliği (sunucu başına bir tane, siteden türetilmez) ve varsa site anahtarı gider. Güncelleme için gereken bu kadar.
+
+FluxWP Panel 1.0.7+ site adresini, WordPress ve PHP sürümünü, saat dilimini ve dili yalnız yönetici izin verdiyse ekler (kurulum sihirbazında ya da FluxWP Panel › Ayarlar'da "FluxWP'yi geliştirmemize yardım edin"); izin yoksa `"usage": false` gönderir. İzin yokken sunucu bunların hiçbirini saklamaz, ülke çıkarmaz (`CF-IPCountry` dahil) ve siteyi kurulum kimliğiyle tanır. İzni geri alan sitenin adresli eski kaydı bir sonraki denetimde birleştirilip silinir. `usage` alanı göndermeyen eski istemciler izinli sayılır.
+
+IP adresi istatistiklere yazılmaz. `data/access.log` IP'yi yalnız hatalı anahtar denemelerinde (güvenlik) tutar, 90 günden eski satırları siler. Günlük sayaçlar 120 gün, site kayıtları son denetimden sonra 180 gün saklanır.
+
 ## Uç noktalar
 
 | | |
