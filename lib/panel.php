@@ -130,6 +130,15 @@ final class Panel {
 					'public_repos' => $this->clean_repos( (string) ( $_POST['public_repos'] ?? '' ), 'public_repos', true ),
 					'app_repo'     => $this->clean_repos( (string) ( $_POST['app_repo'] ?? '' ), 'app_repo', true, 1 ),
 				);
+				if ( isset( $_POST['public_packages_sent'] ) ) {
+					$pp = array();
+					foreach ( (array) ( $_POST['public_packages'] ?? array() ) as $slug ) {
+						if ( is_string( $slug ) && preg_match( '/^[a-z0-9][a-z0-9-]{0,63}$/', $slug ) ) {
+							$pp[] = $slug;
+						}
+					}
+					$changes['public_packages'] = $pp ? implode( ', ', array_unique( $pp ) ) : '-';
+				}
 				$token   = trim( (string) ( $_POST['github_token'] ?? '' ) );
 				if ( '' !== $token ) {
 					$changes['github_token'] = $token;
@@ -853,6 +862,24 @@ var L = <?php echo json_encode( array(
 					<?php $this->repo_chips( 'repo', implode( ', ', $this->server->private_repos() ), 'private' ); ?>
 					<label><?php echo __( 'Public depolar' ); ?> <span class="muted small"><?php echo __( '(paketleri herkese anahtarsız; boşsa public güncelleme kapalı)' ); ?></span></label>
 					<?php $this->repo_chips( 'public_repos', implode( ', ', $this->server->public_repos() ), 'public' ); ?>
+					<?php
+					$priv_pk = array_filter( $catalog, static function ( $r ) {
+						return empty( $r['public'] );
+					} );
+					$pub_pk  = $this->server->public_packages();
+					?>
+					<?php if ( $priv_pk || $pub_pk ) : ?>
+					<label><?php echo __( 'Herkese açık paketler' ); ?> <span class="muted small"><?php echo __( '(private depodaki bu paketler anahtarsız iner; ör. web sitesindeki indirme butonu için flx-setup)' ); ?></span></label>
+					<input type="hidden" name="public_packages_sent" value="1">
+					<div class="checks">
+						<?php foreach ( $priv_pk as $slug => $r ) : ?>
+							<label><input type="checkbox" name="public_packages[]" value="<?php echo $e( $slug ); ?>" <?php echo in_array( $slug, $pub_pk, true ) ? 'checked' : ''; ?>> <?php echo $e( $r['name'] ); ?></label>
+						<?php endforeach; ?>
+						<?php foreach ( array_diff( $pub_pk, array_keys( $priv_pk ) ) as $slug ) : ?>
+							<label><input type="checkbox" name="public_packages[]" value="<?php echo $e( $slug ); ?>" checked> <?php echo $e( $slug ); ?></label>
+						<?php endforeach; ?>
+					</div>
+					<?php endif; ?>
 					<label><?php echo __( 'Uygulama deposu' ); ?> <span class="muted small"><?php echo __( '(masaüstü/mobil uygulama, tag v&lt;sürüm&gt;)' ); ?></span></label>
 					<?php $this->repo_chips( 'app_repo', (string) ( $this->config['app_repo'] ?? '' ), 'app', true ); ?>
 					<p class="small muted"><?php echo __( 'Liste GitHub\'dan gelir: token\'ın erişebildiği depolar ve bu sahiplerin public depoları. Listede olmayanı <code>owner/repo</code> yazıp Enter ile ekleyin.' ); ?></p>
@@ -971,7 +998,7 @@ var L = <?php echo json_encode( array(
 				<?php foreach ( $catalog as $slug => $r ) : ?>
 					<tr>
 						<td><b><?php echo $e( $r['name'] ); ?></b><br><span class="small muted"><?php echo $e( $slug ); ?></span></td>
-						<td><?php echo ! empty( $r['public'] ) ? '<span class="pill ok">Public</span>' : '<span class="pill muted">' . __( 'Anahtarla' ) . '</span>'; ?><br><span class="small muted"><?php echo $e( $r['repo'] ?? '' ); ?></span></td>
+						<td><?php echo $this->server->is_public( $r ) ? '<span class="pill ok">Public</span>' : '<span class="pill muted">' . __( 'Anahtarla' ) . '</span>'; ?><br><span class="small muted"><?php echo $e( $r['repo'] ?? '' ); ?></span></td>
 						<td><?php echo 'theme' === $r['type'] ? __( 'Tema' ) : __( 'Eklenti' ); ?></td>
 						<td><?php echo $e( $r['version'] ); ?><?php echo ( isset( $stable[ $slug ] ) && $stable[ $slug ]['version'] === $r['version'] ) ? '' : ' <span class="pill warn">beta</span>'; ?></td>
 						<td class="small"><?php echo $e( str_replace( 'T', ' ', substr( $r['published_at'], 0, 16 ) ) ); ?></td>
@@ -1217,7 +1244,7 @@ var L = <?php echo json_encode( array(
 					<tr><th><?php echo __( 'Paket' ); ?></th><th class="n"><?php echo __( 'Kurulu site' ); ?></th><th class="n"><?php echo __( 'İndirme' ); ?></th></tr>
 					<?php foreach ( $rows as $slug => $r ) : ?>
 						<tr>
-							<td class="lbl"><span class="bar" style="width:<?php echo $pmax ? round( $r[0] / $pmax * 100, 1 ) : 0; ?>%"></span><span class="txt"><?php echo $e( $catalog[ $slug ]['name'] ?? $slug ); ?><?php if ( isset( $catalog[ $slug ] ) && ! empty( $catalog[ $slug ]['public'] ) ) : ?> <small>public</small><?php endif; ?></span></td>
+							<td class="lbl"><span class="bar" style="width:<?php echo $pmax ? round( $r[0] / $pmax * 100, 1 ) : 0; ?>%"></span><span class="txt"><?php echo $e( $catalog[ $slug ]['name'] ?? $slug ); ?><?php if ( isset( $catalog[ $slug ] ) && $this->server->is_public( $catalog[ $slug ] ) ) : ?> <small>public</small><?php endif; ?></span></td>
 							<td class="n"><?php echo self::n( $r[0] ); ?></td>
 							<td class="n"><?php echo self::n( $r[1] ); ?></td>
 						</tr>
