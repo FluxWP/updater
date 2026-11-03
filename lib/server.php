@@ -9,7 +9,7 @@
 
 namespace FLXUpdate;
 
-const VERSION = '1.8.0';
+const VERSION = '1.8.1';
 const DAY_SECONDS = 86400;
 
 class HttpError extends \Exception {}
@@ -708,6 +708,16 @@ final class Server {
 				$errors[] = $e->getMessage();
 			}
 		}
+		// Fine-grained token kendi hesabının public depolarını da listeler: yalnız kayıtlı depoların
+		// sahiplerine ait depolar ve token'a açıkça verilmiş private depolar kalır.
+		if ( $owners ) {
+			$out = array_filter(
+				$out,
+				static function ( $r ) use ( $owners ) {
+					return $r['private'] || isset( $owners[ strtolower( strtok( $r['name'], '/' ) ) ] );
+				}
+			);
+		}
 		ksort( $out );
 		$data = array( 'at' => time(), 'repos' => array_values( $out ), 'error' => implode( '; ', $errors ) );
 		$this->write_json( $file, $data );
@@ -792,6 +802,8 @@ final class Server {
 		@unlink( $this->data_dir . '/releases.json' );
 		@unlink( $this->data_dir . '/app-releases.json' );
 		@unlink( $this->data_dir . '/fluxapp-releases.json' );
+		@unlink( $this->data_dir . '/gh-repos.json' );
+		@unlink( $this->data_dir . '/gh-rate.json' );
 	}
 
 	/** GitHub'a token ile erişilebiliyor mu (önbelleği kullanmadan). */

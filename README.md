@@ -22,7 +22,7 @@ Tüm ayarlar **/admin** panelinden girilir; `config.php` gerekmez.
 ## Kurulum (Hostinger, zip)
 
 1. hPanel'de bir subdomain açın (ör. `updater.example.com` (normal PHP sitesi, PHP 7.4+), SSL'i açın.
-2. [Releases](../../releases/latest) sayfasından `wp-update-server.zip`'i indirin, Dosya Yöneticisi'nde
+2. [Releases](../../releases/latest) sayfasından `flx-update-server.zip`'i indirin, Dosya Yöneticisi'nde
    subdomain'in kök klasörüne yükleyip açın.
 3. Hemen `https://<subdomain>/admin` adresini açın › **İlk kurulum**: kullanıcı adı + parola.
    (İlk kurulumu yapan yönetici olur; zip'i açar açmaz yapın.)
