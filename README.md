@@ -67,6 +67,7 @@ isterseniz ortam değişkeni de olur (panel değerleri bunları ezer):
 | `FLX_UPDATE_PUBLIC_REPOS` | public depolar, virgülle (varsayılan `FluxWP/wp-extras`) |
 | `FLX_UPDATE_CACHE_TTL` | release önbelleği, sn (300) |
 | `FLX_UPDATE_DATA_DIR` | varsayılan `./data` |
+| `FLX_UPDATE_LANG` | panelin varsayılan dili: `en` (varsayılan) ya da `tr` |
 
 Eski `config.php` varsa çalışmaya devam eder: oradaki parola ile giriş yapılır, oradaki siteler
 panelde salt okunur görünür. Panelden girilen değerler `config.php`'yi ezer.
@@ -85,6 +86,19 @@ panelde salt okunur görünür. Panelden girilen değerler `config.php`'yi ezer.
 | `GET /v1/fluxapp/download/<tag>/<dosya>` | herkese açık; GitHub indirme adresine 302 |
 | `POST /v1/webhook` | `X-Hub-Signature-256` imzalı; release önbelleğini boşaltır |
 | `GET /admin` | yönetim paneli (`/status` buraya yönlenir) |
+
+### Panel: genel bakış, kaynaklar, dil (1.8.0)
+
+- **Genel bakış:** son 7/30/90 günde güncelleme denetleyen siteler (anahtarlı ve anahtarsız), kontrol isteği, indirme,
+  aktarılan veri, günlük grafik, paketlerin kaç sitede kurulu olduğu, ülke haritası ve bağlanan sitelerin listesi.
+  Veriler `data/stats.json`'da durur (günlük toplamlar 120 gün, siteler son görülmeden 180 gün). IP saklanmaz; ülke sitenin
+  WordPress saat diliminden (Flux Updater 1.6.1+ gönderir) ya da Cloudflare'in `CF-IPCountry` başlığından bulunur.
+- **Kaynaklar:** disk, `data/` dağılımı (zip, önbellek, istatistik, günlük), GitHub API kotası, paket önbelleğinin yaşı, PHP sınırları.
+  Eski zipler ve erişim günlüğü buradan temizlenir.
+- **Depo seçici:** private, public ve uygulama depoları etiket olarak seçilir; liste GitHub'dan gelir (token'ın eriştiği
+  depolar + kayıtlı sahiplerin public depoları, 10 dk önbellek). Listede olmayan `owner/repo` yazılıp Enter ile eklenir.
+- **Dil:** panel İngilizce (varsayılan) ve Türkçe. Giriş ekranında ya da üstteki EN/TR ile seçilir, tarayıcıda hatırlanır.
+  Çeviriler `lib/lang/en.php`'de (anahtar Türkçe kaynak metin).
 
 ### Public paketler (1.7.0)
 

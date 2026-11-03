@@ -9,7 +9,7 @@
 
 namespace FLXUpdate;
 
-const VERSION = '1.7.0';
+const VERSION = '1.8.0';
 const DAY_SECONDS = 86400;
 
 class HttpError extends \Exception {}
@@ -152,6 +152,7 @@ final class Server {
 		if ( empty( $site['anon'] ) ) {
 			$this->remember_site( $site, $body );
 		}
+		$this->stats()->record_check( $site, $body );
 		$this->json( array( 'ok' => true, 'site' => $site['name'], 'public' => ! empty( $site['anon'] ), 'packages' => $out ) );
 	}
 
@@ -191,6 +192,7 @@ final class Server {
 		$this->prune_zips( $slug );
 
 		$this->log( 'download', ( empty( $site['anon'] ) ? $site['name'] : 'public' ) . ' ' . $slug . ' ' . $version );
+		$this->stats()->record_download( $site, $slug, (int) filesize( $file ) );
 
 		header( 'Content-Type: application/zip' );
 		header( 'Content-Length: ' . filesize( $file ) );
@@ -646,6 +648,143 @@ final class Server {
 	/** Sitelerin son bildirdiği durum (sites.json): hash => {...}. */
 	public function site_states(): array {
 		return $this->read_json( $this->data_dir . '/sites.json' );
+	}
+
+	public function stats(): Stats {
+		return new Stats( $this->data_dir );
+	}
+
+	/**
+	 * Panelin depo seçicisi için GitHub depoları: token'ın erişebildikleri ve kayıtlı
+	 * depoların sahiplerindeki public depolar. 10 dakika önbellekte.
+	 *
+	 * @return array{repos:array,error:string}
+	 */
+	public function github_repos( bool $fresh = false ): array {
+		$file  = $this->data_dir . '/gh-repos.json';
+		$cache = $this->read_json( $file );
+		if ( ! $fresh && isset( $cache['at'], $cache['repos'] ) && time() - (int) $cache['at'] < 600 ) {
+			return array( 'repos' => $cache['repos'], 'error' => (string) ( $cache['error'] ?? '' ) );
+		}
+		$out    = array();
+		$errors = array();
+		$add    = static function ( array $list ) use ( &$out ) {
+			foreach ( $list as $r ) {
+				if ( ! is_array( $r ) || empty( $r['full_name'] ) || ! empty( $r['archived'] ) ) {
+					continue;
+				}
+				$out[ strtolower( $r['full_name'] ) ] = array(
+					'name'    => (string) $r['full_name'],
+					'private' => ! empty( $r['private'] ),
+					'desc'    => mb_substr( (string) ( $r['description'] ?? '' ), 0, 120 ),
+				);
+			}
+		};
+		if ( '' !== (string) $this->config['github_token'] ) {
+			try {
+				for ( $page = 1; $page <= 5; $page++ ) {
+					$list = json_decode( $this->github( '/user/repos?per_page=100&sort=full_name&page=' . $page ), true );
+					if ( ! is_array( $list ) ) {
+						break;
+					}
+					$add( $list );
+					if ( count( $list ) < 100 ) {
+						break;
+					}
+				}
+			} catch ( \Throwable $e ) {
+				$errors[] = $e->getMessage();
+			}
+		}
+		$owners = array();
+		foreach ( $this->repos() as $src ) {
+			$owners[ strtolower( strtok( $src['repo'], '/' ) ) ] = strtok( $src['repo'], '/' );
+		}
+		foreach ( $owners as $owner ) {
+			try {
+				$list = json_decode( $this->github( '/users/' . rawurlencode( $owner ) . '/repos?type=public&per_page=100&sort=full_name', 'application/vnd.github+json', null, false ), true );
+				$add( is_array( $list ) ? $list : array() );
+			} catch ( \Throwable $e ) {
+				$errors[] = $e->getMessage();
+			}
+		}
+		ksort( $out );
+		$data = array( 'at' => time(), 'repos' => array_values( $out ), 'error' => implode( '; ', $errors ) );
+		$this->write_json( $file, $data );
+		return array( 'repos' => $data['repos'], 'error' => $data['error'] );
+	}
+
+	/** GitHub API kotası (kota harcamaz). 5 dakika önbellekte. */
+	public function github_rate(): array {
+		$file  = $this->data_dir . '/gh-rate.json';
+		$cache = $this->read_json( $file );
+		if ( isset( $cache['at'] ) && time() - (int) $cache['at'] < 300 ) {
+			return $cache;
+		}
+		$data = array( 'at' => time() );
+		try {
+			$r    = json_decode( $this->github( '/rate_limit', 'application/vnd.github+json', null, false ), true );
+			$core = is_array( $r ) ? (array) ( $r['resources']['core'] ?? ( $r['rate'] ?? array() ) ) : array();
+			$data += array(
+				'limit'     => (int) ( $core['limit'] ?? 0 ),
+				'remaining' => (int) ( $core['remaining'] ?? 0 ),
+				'reset'     => (int) ( $core['reset'] ?? 0 ),
+			);
+		} catch ( \Throwable $e ) {
+			$data['error'] = $e->getMessage();
+		}
+		$this->write_json( $file, $data );
+		return $data;
+	}
+
+	/** Sunucu kaynakları: disk, data klasörü, önbellek, PHP. */
+	public function resources(): array {
+		$dir   = $this->data_dir;
+		$sizes = array( 'zips' => 0, 'logs' => 0, 'cache' => 0, 'stats' => 0, 'other' => 0 );
+		if ( is_dir( $dir ) ) {
+			$it = new \RecursiveIteratorIterator( new \RecursiveDirectoryIterator( $dir, \FilesystemIterator::SKIP_DOTS ) );
+			foreach ( $it as $f ) {
+				if ( ! $f->isFile() ) {
+					continue;
+				}
+				$rel = substr( $f->getPathname(), strlen( $dir ) + 1 );
+				$sz  = (int) $f->getSize();
+				if ( 0 === strpos( $rel, 'zips/' ) ) {
+					$sizes['zips'] += $sz;
+				} elseif ( '.log' === substr( $rel, -4 ) ) {
+					$sizes['logs'] += $sz;
+				} elseif ( 0 === strpos( $rel, 'stats' ) ) {
+					$sizes['stats'] += $sz;
+				} elseif ( preg_match( '/releases\.json$|^gh-/', $rel ) ) {
+					$sizes['cache'] += $sz;
+				} else {
+					$sizes['other'] += $sz;
+				}
+			}
+		}
+		$rel = $this->read_json( $dir . '/releases.json' );
+		return array(
+			'data'       => $sizes,
+			'data_total' => array_sum( $sizes ),
+			'disk_free'  => is_dir( $dir ) ? (float) @disk_free_space( $dir ) : 0.0,
+			'disk_total' => is_dir( $dir ) ? (float) @disk_total_space( $dir ) : 0.0,
+			'cache_at'   => (int) ( $rel['at'] ?? 0 ),
+			'cache_ttl'  => (int) $this->config['cache_ttl'],
+			'php'        => PHP_VERSION,
+			'memory'     => (string) ini_get( 'memory_limit' ),
+			'peak'       => memory_get_peak_usage( true ),
+			'max_time'   => (int) ini_get( 'max_execution_time' ),
+			'curl'       => function_exists( 'curl_version' ) ? (string) ( curl_version()['version'] ?? '' ) : '',
+			'load'       => function_exists( 'sys_getloadavg' ) ? @sys_getloadavg() : false,
+		);
+	}
+
+	/** access.log'u boşaltır. */
+	public function clear_log(): int {
+		$f = $this->data_dir . '/access.log';
+		$n = is_file( $f ) ? (int) filesize( $f ) : 0;
+		@unlink( $f );
+		return $n;
 	}
 
 	/** Release önbelleğini boşaltır; bir sonraki istek GitHub'dan okur. */
