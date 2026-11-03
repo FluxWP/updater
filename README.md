@@ -4,7 +4,7 @@
 
 # FluxWP Update Server
 
-A small PHP server that turns GitHub releases into WordPress updates. Sites running **Flux Updater** see your private and public themes and plugins on the normal **Dashboard › Updates** screen.
+A small PHP server that turns GitHub releases into WordPress updates. Sites running **Flux Setup** (formerly Flux Updater) see your private and public themes and plugins on the normal **Dashboard › Updates** screen.
 
 ![PHP 7.4+](https://img.shields.io/badge/PHP-7.4%2B-777bb4?logo=php&logoColor=white) ![No database](https://img.shields.io/badge/database-none-2fbf8f) ![Shared hosting](https://img.shields.io/badge/runs%20on-shared%20hosting-21759b) ![Docker](https://img.shields.io/badge/Docker-optional-2496ed?logo=docker&logoColor=white)
 
@@ -23,7 +23,7 @@ GitHub repositories (push → Actions → <slug>-v<version> release + <slug>.zip
         ▼
 update server   /admin (panel) · /v1/check · /v1/download/<slug>/<version>.zip · /v1/app/* · /v1/webhook
         ▲ no key: public packages · X-FluxWP-Site-Key: + the key's private packages
-WordPress sites (Flux Updater)
+WordPress sites (Flux Setup)
 ```
 
 Everything is set in the **/admin** panel; `config.php` is not needed.
@@ -36,7 +36,7 @@ Everything is set in the **/admin** panel; `config.php` is not needed.
 4. **GitHub** card: pick the private and public repositories, paste the token, then *Save and test*. It should show **Connected**.
    Token: GitHub › Settings › Developer settings › Fine-grained tokens, only the private repositories, **Contents: Read-only**. Public-only servers need no token.
 5. **Add site**: name, private packages (all or selected), channel, then *Generate key*. The key is shown **once**; copy it and check it with *Test this key*.
-6. On the WordPress site: install `flx-updater.zip` once, open **Settings › Flux Updater**, paste the key and *Save and check*. The plugin uses `https://updater.fluxwp.com` by default; enter your own address if you run your own server. A site without a key sees only public packages.
+6. On the WordPress site: install `flx-setup.zip` once, open **Setup › Settings**, paste the key and *Save and check*. The plugin uses `https://updater.fluxwp.com` by default; enter your own address if you run your own server. A site without a key sees only public packages.
 7. Optional, **instant publish**: *Generate secret*, then add it to the package repository under Settings › Secrets › Actions as `UPDATE_WEBHOOK_SECRET`. Without it a new version shows up within 5 minutes.
 
 To upgrade, extract the new zip over the old one. Settings live in `data/settings.json`, which is not in the zip. `data/` must be writable.
@@ -52,13 +52,13 @@ To upgrade, extract the new zip over the old one. Settings live in `data/setting
 ### Site keys
 
 - Only the key's sha256 is stored. A lost key cannot be recovered: delete the site and add it again.
-- **Issue a key to a connected site:** under Overview › Connected sites, a site that connected without a key gets an "Issue key" button. The site picks the key up on its next update check (or right away with "Test connection" in Flux Updater). Needs Flux Updater 1.7.0+, which sends a random install ID only to this server; the key is handed only to a request carrying that ID, so a site that fakes another site's address cannot take it. An unclaimed key expires after 7 days.
+- **Issue a key to a connected site:** under Overview › Connected sites, a site that connected without a key gets an "Issue key" button. The site picks the key up on its next update check (or right away with "Test connection" under Setup › Settings). Needs Flux Setup (or Flux Updater 1.7.0+), which sends a random install ID only to this server; the key is handed only to a request carrying that ID, so a site that fakes another site's address cannot take it. An unclaimed key expires after 7 days.
 - **Enable/disable:** "Disable" turns a key off. A disabled key still identifies the site but only unlocks public packages; the site shows "key disabled on server".
 - **Scope:** "All private packages", or selected repositories and packages. Ticking "all" for a repository also covers packages added later.
 
 ### Panel
 
-- **Overview:** sites that checked for updates in the last 7/30/90 days (with and without a key), checks, downloads, data sent, a daily chart, installs per package, a country map and the connected sites. Stored in `data/stats.json` (daily totals 120 days, sites 180 days after last seen). IPs are not stored; the country comes from the site's WordPress time zone (Flux Updater 1.6.1+) or Cloudflare's `CF-IPCountry`.
+- **Overview:** sites that checked for updates in the last 7/30/90 days (with and without a key), checks, downloads, data sent, a daily chart, installs per package, a country map and the connected sites. Stored in `data/stats.json` (daily totals 120 days, sites 180 days after last seen). IPs are not stored; the country comes from the site's WordPress time zone (Flux Setup, or Flux Updater 1.6.1+) or Cloudflare's `CF-IPCountry`.
 - **Resources:** disk, `data/` breakdown, GitHub API quota, package cache age, PHP limits. Old zips and the access log are cleaned from here.
 - **Repository picker:** private, public and app repositories are chosen as tags from the list GitHub returns for the token. Type `owner/repo` and press Enter to add one that is not listed.
 - **Language:** English (default) and Turkish, switched with EN/TR at the top.
@@ -67,7 +67,7 @@ To upgrade, extract the new zip over the old one. Settings live in `data/setting
 
 - Public packages are served without a key, except beta versions. With a key, the key's private packages are added to the same response.
 - If a repository cannot be read, its packages come from the last known list and the GitHub card shows "Unreadable".
-- `/v1/check` returns `requires_plugins` for every package (the `Requires Plugins:` header), so Flux Updater can install missing plugins together.
+- `/v1/check` returns `requires_plugins` for every package (the `Requires Plugins:` header), so Flux Setup can install missing plugins together.
 - A version containing `-` (e.g. `1.3.0-beta.1`) is visible only on the beta channel.
 
 ### Zip storage
