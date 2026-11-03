@@ -5,9 +5,9 @@
  * Git'ten deploy edilen kurulumda (Coolify, Docker, hosting Git) yalnız ortam
  * değişkenleri yeterlidir; config.php hiç gerekmez.
  *
- *   FLX_UPDATE_REPO                  private paket depoları, virgülle (varsayılan FluxWP/fluxwp); site anahtarıyla
+ *   FLX_UPDATE_REPO                  private paket depoları, virgülle (varsayılan boş, panelden seçilir); site anahtarıyla
  *   FLX_UPDATE_PUBLIC_REPOS          public paket depoları, virgülle (varsayılan boş); anahtarsız herkese
- *   FLX_UPDATE_APP_REPO              uygulama deposu (varsayılan FluxWP/app; tag v<sürüm>)
+ *   FLX_UPDATE_APP_REPO              uygulama deposu (varsayılan boş; tag v<sürüm>)
  *   FLX_UPDATE_GITHUB_TOKEN          fine-grained token, Contents: Read-only
  *   FLX_UPDATE_WEBHOOK_SECRET        Actions'taki UPDATE_WEBHOOK_SECRET ile aynı
  *   FLX_UPDATE_BASE_URL              https://updater.fluxwp.com
@@ -42,9 +42,9 @@ function load_config( string $root ): array {
 	}
 
 	$config = array(
-		'repo'                => (string) $env( 'FLX_UPDATE_REPO', 'FluxWP/fluxwp, FluxWP/wp-extras' ),
+		'repo'                => (string) $env( 'FLX_UPDATE_REPO', '' ),
 		'public_repos'        => (string) $env( 'FLX_UPDATE_PUBLIC_REPOS', '' ),
-		'app_repo'            => (string) $env( 'FLX_UPDATE_APP_REPO', 'FluxWP/app' ),
+		'app_repo'            => (string) $env( 'FLX_UPDATE_APP_REPO', '' ),
 		'fluxapp_repo'        => (string) $env( 'FLX_UPDATE_FLUXAPP_REPO', '' ),
 		'github_token'        => (string) $env( 'FLX_UPDATE_GITHUB_TOKEN' ),
 		'webhook_secret'      => (string) $env( 'FLX_UPDATE_WEBHOOK_SECRET' ),

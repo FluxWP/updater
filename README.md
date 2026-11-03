@@ -3,8 +3,10 @@
 GitHub release'lerini WordPress sitelerine "güncelleme var" olarak sunan, kendi sunucunuzda çalışan
 güncelleme sunucusu. FluxWP'nin resmi sunucusu `https://updater.fluxwp.com`; aynı kodla kendi sunucunuzu da kurabilirsiniz.
 
-- **Public depolar** (varsayılan boş): paketleri herkese **anahtarsız** sunulur.
-- **Private depolar** (varsayılan `FluxWP/fluxwp`): paketleri yalnız **site anahtarıyla**, anahtara tanımlı paketler kadar görünür.
+- **Public depolar**: paketleri herkese **anahtarsız** sunulur.
+- **Private depolar**: paketleri yalnız **site anahtarıyla**, anahtara tanımlı paketler kadar görünür.
+
+Varsayılan depo yoktur: depolar /admin › GitHub kartından seçilir. Bir depo yalnız Public'e eklenirse anahtarsız dağıtılır.
 
 GitHub token yalnız bu sunucuda durur; siteler Flux Updater eklentisiyle bağlanır.
 
@@ -63,8 +65,8 @@ isterseniz ortam değişkeni de olur (panel değerleri bunları ezer):
 | `FLX_UPDATE_WEBHOOK_SECRET` | webhook secret |
 | `FLX_UPDATE_ADMIN_USER` / `FLX_UPDATE_ADMIN_PASSWORD` | panel girişi (ilk kurulum yerine) |
 | `FLX_UPDATE_BASE_URL` | boşsa istekten bulunur |
-| `FLX_UPDATE_REPO` | private depolar, virgülle (varsayılan `FluxWP/fluxwp`) |
-| `FLX_UPDATE_PUBLIC_REPOS` | public depolar, virgülle (varsayılan boş: anahtarsız güncelleme kapalı) |
+| `FLX_UPDATE_REPO` | private depolar, virgülle |
+| `FLX_UPDATE_PUBLIC_REPOS` | public depolar, virgülle (boşsa anahtarsız güncelleme kapalı) |
 | `FLX_UPDATE_CACHE_TTL` | release önbelleği, sn (300) |
 | `FLX_UPDATE_DATA_DIR` | varsayılan `./data` |
 | `FLX_UPDATE_LANG` | panelin varsayılan dili: `en` (varsayılan) ya da `tr` |
