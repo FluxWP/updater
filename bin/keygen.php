@@ -19,7 +19,7 @@ if ( ( $argv[1] ?? '' ) === '--password' ) {
 		fwrite( STDERR, "En az 10 karakter olmalı.\n" );
 		exit( 1 );
 	}
-	echo "\nYT_UPDATE_ADMIN_PASSWORD_HASH=" . password_hash( $pass, PASSWORD_DEFAULT ) . "\n";
+	echo "\nFLX_UPDATE_ADMIN_PASSWORD_HASH=" . password_hash( $pass, PASSWORD_DEFAULT ) . "\n";
 	exit;
 }
 
