@@ -149,3 +149,13 @@ location = /index.php { include fastcgi_params; fastcgi_param SCRIPT_FILENAME $d
 | Sitede "HTTP 502" | /admin › GitHub kartı kırmızı mı: token süresi dolmuş/yanlış |
 | Yeni sürüm görünmüyor | Paket deposunun Actions işi yeşil mi; /admin › *Paketleri yeniden oku* |
 | Kayıtlar | `data/access.log`, PHP hata günlüğü |
+
+## Geliştirici
+
+FluxWP Update Server, **Ahmet Yılmaz** ([@sharkpaw](https://github.com/sharkpaw)) tarafından yürütülmekte ve geliştirilmektedir.
+
+<table><tr><td align="center"><a href="https://github.com/sharkpaw"><img src="https://github.com/sharkpaw.png?size=120" width="64" alt="Ahmet Yılmaz"><br><b>Ahmet Yılmaz</b></a><br><sub>Proje lideri · Maintainer</sub></td></tr></table>
+
+### Katkıda bulunanlar
+
+Issue ve pull request'ler açıktır. Katkıda bulunanlar burada listelenecek.
