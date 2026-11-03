@@ -406,10 +406,10 @@ final class Panel {
 	}
 
 	private static function size( int $bytes ): string {
-		$u = array( 'B', 'KB', 'MB', 'GB' );
+		$u = array( 'B', 'KB', 'MB', 'GB', 'TB' );
 		$i = 0;
 		$n = (float) $bytes;
-		while ( $n >= 1024 && $i < 3 ) {
+		while ( $n >= 1024 && $i < 4 ) {
 			$n /= 1024;
 			++$i;
 		}
@@ -1149,6 +1149,8 @@ var L = <?php echo json_encode( array(
 		$zs = $this->server->zip_stats();
 		$gh = $this->server->github_rate();
 		$used = max( 0, $R['disk_total'] - $R['disk_free'] );
+		// Paylaşımlı hosting'de PHP fiziksel makinenin diskini görür (TB'larca); hesabın kotası değildir.
+		$shared = $R['disk_total'] > 2 * 1024 ** 4;
 		$parts = array(
 			'zips'  => array( __( 'Zip dosyaları' ), '#2563eb' ),
 			'cache' => array( __( 'GitHub önbelleği' ), '#0d9488' ),
@@ -1162,7 +1164,10 @@ var L = <?php echo json_encode( array(
 		<div class="grid3">
 			<div class="card">
 				<h2><?php echo __( 'Depolama' ); ?></h2>
-				<?php if ( $R['disk_total'] > 0 ) : ?>
+				<?php if ( $R['disk_total'] > 0 && $shared ) : ?>
+					<div class="res-line"><span><?php echo __( 'Makine diski (paylaşımlı)' ); ?></span><b><?php echo $e( _f( '%s boş', self::size( (int) $R['disk_free'] ) ) ); ?></b></div>
+					<p class="small muted"><?php echo __( 'Paylaşımlı hosting\'de PHP sunucudaki tüm hesapların ortak diskini görür; bu sizin kotanız değil. Kotayı hosting panelinden (Hostinger: hPanel › Hesap kaynakları) görün.' ); ?></p>
+				<?php elseif ( $R['disk_total'] > 0 ) : ?>
 					<div class="res-line"><span><?php echo __( 'Disk' ); ?></span><b><?php echo $e( self::size( (int) $used ) ); ?> / <?php echo $e( self::size( (int) $R['disk_total'] ) ); ?></b></div>
 					<?php echo self::meter( $used, $R['disk_total'] ); ?>
 					<p class="small muted"><?php echo $e( _f( '%s boş', self::size( (int) $R['disk_free'] ) ) ); ?></p>
@@ -1205,7 +1210,7 @@ var L = <?php echo json_encode( array(
 					<tr><td><?php echo __( 'Süre sınırı' ); ?></td><td class="n"><?php echo $R['max_time'] ? _f( '%d sn', (int) $R['max_time'] ) : __( 'sınırsız' ); ?></td></tr>
 					<tr><td>cURL</td><td class="n"><?php echo $e( $R['curl'] ?: __( 'yok' ) ); ?></td></tr>
 					<?php if ( is_array( $R['load'] ) ) : ?>
-						<tr><td><?php echo __( 'Sunucu yükü (1/5/15 dk)' ); ?></td><td class="n"><?php echo $e( implode( ' / ', array_map( static function ( $x ) { return I18n::num( $x, 2 ); }, $R['load'] ) ) ); ?></td></tr>
+						<tr><td><?php echo $shared ? __( 'Makine yükü, paylaşımlı (1/5/15 dk)' ) : __( 'Sunucu yükü (1/5/15 dk)' ); ?></td><td class="n"><?php echo $e( implode( ' / ', array_map( static function ( $x ) { return I18n::num( $x, 2 ); }, $R['load'] ) ) ); ?></td></tr>
 					<?php endif; ?>
 					<tr><td><?php echo __( 'intl (ülke adları)' ); ?></td><td class="n"><?php echo class_exists( '\Locale' ) ? __( 'var' ) : __( 'yok' ); ?></td></tr>
 				</table>
