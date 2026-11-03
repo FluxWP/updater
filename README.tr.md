@@ -4,7 +4,7 @@
 
 # FluxWP Update Server
 
-GitHub release'lerini WordPress güncellemesine çeviren küçük bir PHP sunucusu. **Flux Updater** kurulu siteler private ve public tema ve eklentilerinizi WordPress'in normal **Başlangıç › Güncellemeler** ekranında görür.
+GitHub release'lerini WordPress güncellemesine çeviren küçük bir PHP sunucusu. **FluxWP Panel** (flx-setup) kurulu siteler private ve public tema ve eklentilerinizi WordPress'in normal **Başlangıç › Güncellemeler** ekranında görür.
 
 ![PHP 7.4+](https://img.shields.io/badge/PHP-7.4%2B-777bb4?logo=php&logoColor=white) ![Veritabanı yok](https://img.shields.io/badge/veritaban%C4%B1-yok-2fbf8f) ![Paylaşımlı hosting](https://img.shields.io/badge/payla%C5%9F%C4%B1ml%C4%B1-hosting-21759b) ![Docker](https://img.shields.io/badge/Docker-iste%C4%9Fe%20ba%C4%9Fl%C4%B1-2496ed?logo=docker&logoColor=white)
 
@@ -23,7 +23,7 @@ GitHub depoları (push → Actions → <slug>-v<sürüm> release + <slug>.zip)
         ▼
 update server   /admin (panel) · /v1/check · /v1/download/<slug>/<sürüm>.zip · /v1/app/* · /v1/webhook
         ▲ anahtarsız: public paketler · X-FluxWP-Site-Key: + anahtarın private paketleri
-WordPress siteleri (Flux Updater)
+WordPress siteleri (FluxWP Panel)
 ```
 
 Tüm ayarlar **/admin** panelinden girilir; `config.php` gerekmez.
@@ -52,13 +52,13 @@ Güncellemek için yeni zip'i üstüne açın. Ayarlar zip'te olmayan `data/sett
 ### Site anahtarları
 
 - Sunucuda anahtarın yalnız sha256'sı durur. Kaybedilen anahtar geri alınamaz; siteyi silip yeniden ekleyin.
-- **Bağlı siteye anahtar ver:** Genel bakış › Bağlanan siteler'de anahtarsız bağlanan sitenin satırında "Anahtar ver" var. Site anahtarı bir sonraki kontrolde (ya da Flux Updater'da "Bağlantıyı test et" ile hemen) alır. Flux Updater 1.7.0+ gerekir: eklenti yalnız bu sunucuya rastgele bir kurulum kimliği gönderir, anahtar yalnız o kimliği taşıyan isteğe teslim edilir; site adresini taklit eden alamaz. 7 gün içinde alınmayan anahtarın süresi dolar.
+- **Bağlı siteye anahtar ver:** Genel bakış › Bağlanan siteler'de anahtarsız bağlanan sitenin satırında "Anahtar ver" var. Site anahtarı bir sonraki kontrolde (ya da FluxWP Panel'da "Bağlantıyı test et" ile hemen) alır. FluxWP Panel 1.7.0+ gerekir: eklenti yalnız bu sunucuya rastgele bir kurulum kimliği gönderir, anahtar yalnız o kimliği taşıyan isteğe teslim edilir; site adresini taklit eden alamaz. 7 gün içinde alınmayan anahtarın süresi dolar.
 - **Aktif/pasif:** pasif anahtarlı site tanınır ama yalnız public paketleri görür; sitede "anahtar sunucuda pasif" yazar.
 - **Kapsam:** "Tüm private paketler" ya da seçilen depolar ve paketler. Bir depoda "tümü" işaretlenirse sonradan eklenen paketler de girer.
 
 ### Panel
 
-- **Genel bakış:** son 7/30/90 günde güncelleme denetleyen siteler (anahtarlı ve anahtarsız), kontrol, indirme, aktarılan veri, günlük grafik, paket başına kurulum, ülke haritası ve bağlanan siteler. `data/stats.json`'da durur (günlük toplamlar 120 gün, siteler son görülmeden 180 gün). IP saklanmaz; ülke sitenin WordPress saat diliminden (Flux Updater 1.6.1+) ya da Cloudflare `CF-IPCountry` başlığından bulunur.
+- **Genel bakış:** son 7/30/90 günde güncelleme denetleyen siteler (anahtarlı ve anahtarsız), kontrol, indirme, aktarılan veri, günlük grafik, paket başına kurulum, ülke haritası ve bağlanan siteler. `data/stats.json`'da durur (günlük toplamlar 120 gün, siteler son görülmeden 180 gün). IP saklanmaz; ülke sitenin WordPress saat diliminden (FluxWP Panel 1.6.1+) ya da Cloudflare `CF-IPCountry` başlığından bulunur.
 - **Kaynaklar:** disk, `data/` dağılımı, GitHub API kotası, paket önbelleğinin yaşı, PHP sınırları. Eski zipler ve erişim günlüğü buradan temizlenir.
 - **Depo seçici:** private, public ve uygulama depoları, token'ın gördüğü listeden etiket olarak seçilir. Listede olmayan `owner/repo` yazılıp Enter ile eklenir.
 - **Dil:** İngilizce (varsayılan) ve Türkçe; üstteki EN/TR ile değişir.
@@ -67,7 +67,7 @@ Güncellemek için yeni zip'i üstüne açın. Ayarlar zip'te olmayan `data/sett
 
 - Public paketler anahtarsız sunulur, beta sürümleri hariç. Anahtar varsa aynı yanıta anahtarın private paketleri eklenir.
 - Bir depo okunamazsa paketleri son bilinen listeden gelir, GitHub kartında "Okunamadı" çıkar.
-- `/v1/check` her paket için `requires_plugins` döndürür (`Requires Plugins:` başlığı); Flux Updater eksik eklentileri birlikte kurar.
+- `/v1/check` her paket için `requires_plugins` döndürür (`Requires Plugins:` başlığı); FluxWP Panel eksik eklentileri birlikte kurar.
 - Sürümünde `-` olan (ör. `1.3.0-beta.1`) yalnız beta kanalında görünür.
 
 ### Zip saklama
