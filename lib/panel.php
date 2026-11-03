@@ -100,8 +100,9 @@ final class Panel {
 
 			case 'save_github':
 				$changes = array(
-					'repo'     => $this->clean_repo( (string) ( $_POST['repo'] ?? '' ) ),
-					'app_repo' => $this->clean_repo( (string) ( $_POST['app_repo'] ?? '' ), 'app_repo' ),
+					'repo'         => $this->clean_repos( (string) ( $_POST['repo'] ?? '' ), 'repo' ),
+					'public_repos' => $this->clean_repos( (string) ( $_POST['public_repos'] ?? '' ), 'public_repos', true ),
+					'app_repo'     => $this->clean_repo( (string) ( $_POST['app_repo'] ?? '' ), 'app_repo' ),
 				);
 				$token   = trim( (string) ( $_POST['github_token'] ?? '' ) );
 				if ( '' !== $token ) {
@@ -469,7 +470,8 @@ details summary{cursor:pointer;color:var(--green);font-weight:600}
 		$gh_error = '';
 		$catalog  = array();
 		$stable   = array();
-		if ( '' === $token ) {
+		$has_pub  = (bool) $this->server->public_repos();
+		if ( '' === $token && ! $has_pub ) {
 			$gh_error = 'GitHub token girilmemiş.';
 		} else {
 			try {
@@ -513,16 +515,29 @@ details summary{cursor:pointer;color:var(--green);font-weight:600}
 					<?php if ( $gh_error ) : ?>
 						<span class="pill err">Bağlı değil</span> <span class="small"><?php echo $e( $gh_error ); ?></span>
 					<?php else : ?>
-						<span class="pill ok">Bağlı</span> <span class="small"><?php echo count( $catalog ); ?> paket okundu</span>
+						<?php
+						$n_pub = count( array_filter( $catalog, static function ( $r ) {
+							return ! empty( $r['public'] );
+						} ) );
+						?>
+						<span class="pill ok">Bağlı</span> <span class="small"><?php echo count( $catalog ); ?> paket okundu (<?php echo (int) ( count( $catalog ) - $n_pub ); ?> private, <?php echo (int) $n_pub; ?> public)</span>
 					<?php endif; ?>
 				</p>
+				<?php if ( '' === $token && $has_pub ) : ?>
+					<p class="small muted">Token yok: yalnız public depolar okunuyor.</p>
+				<?php endif; ?>
+				<?php foreach ( $this->server->repo_errors() as $repo => $err ) : ?>
+					<p class="small"><span class="pill err">Okunamadı</span> <?php echo $e( $repo . ': ' . $err ); ?></p>
+				<?php endforeach; ?>
 				<form method="post" autocomplete="off">
 					<?php echo $this->hidden( 'save_github' ); ?>
-					<label>Repo</label>
+					<label>Private depolar <span class="muted small">(paketleri yalnız site anahtarıyla; virgülle)</span></label>
 					<input type="text" name="repo" value="<?php echo $e( $this->config['repo'] ); ?>" placeholder="FluxWP/fluxwp">
+					<label>Public depolar <span class="muted small">(paketleri herkese anahtarsız; virgülle, boş bırakılırsa public güncelleme kapalı)</span></label>
+					<input type="text" name="public_repos" value="<?php echo $e( $this->config['public_repos'] ?? '' ); ?>" placeholder="FluxWP/wp-extras">
 					<label>Uygulama deposu <span class="muted small">(masaüstü/mobil uygulama, tag v&lt;sürüm&gt;)</span></label>
 					<input type="text" name="app_repo" value="<?php echo $e( $this->config['app_repo'] ?? '' ); ?>" placeholder="FluxWP/app">
-					<label>Token <span class="muted small">(fine-grained, bu iki repo, Contents: Read-only)</span></label>
+					<label>Token <span class="muted small">(fine-grained, private depolar + uygulama deposu, Contents: Read-only)</span></label>
 					<input type="password" name="github_token" placeholder="<?php echo $token ? $e( 'Kayıtlı: …' . substr( $token, -4 ) . ' (değiştirmek için yenisini yazın)' ) : 'github_pat_…'; ?>">
 					<p class="row"><button class="btn">Kaydet ve test et</button></p>
 				</form>
@@ -583,7 +598,7 @@ details summary{cursor:pointer;color:var(--green);font-weight:600}
 							<br><span class="small muted"><?php echo $e( $st['last_seen'] ?? '' ); ?></span>
 						</td>
 						<td class="small"><?php echo $pkg ? implode( '<br>', $pkg ) : '<span class="muted">—</span>'; ?></td>
-						<td class="small"><?php echo '*' === ( $conf['packages'] ?? '*' ) ? 'Tüm paketler' : $e( implode( ', ', (array) $conf['packages'] ) ); ?><br><span class="muted"><?php echo 'beta' === ( $conf['channel'] ?? '' ) ? 'Beta dahil' : 'Kararlı'; ?></span></td>
+						<td class="small"><?php echo '*' === ( $conf['packages'] ?? '*' ) ? 'Tüm private paketler' : $e( implode( ', ', (array) $conf['packages'] ) ); ?><br><span class="muted"><?php echo 'beta' === ( $conf['channel'] ?? '' ) ? 'Beta dahil' : 'Kararlı'; ?></span></td>
 						<td>
 							<?php if ( 'panel' === ( $conf['source'] ?? '' ) ) : ?>
 								<details><summary>Düzenle</summary>
@@ -615,13 +630,14 @@ details summary{cursor:pointer;color:var(--green);font-weight:600}
 		<div class="card">
 			<h2>Paketler</h2>
 			<?php if ( ! $catalog ) : ?>
-				<p class="muted">Paket yok. GitHub token'ı girin; FluxWP/fluxwp'de release yoksa bir pakete sürüm çıkın.</p>
+				<p class="muted">Paket yok. Depoları ve (private depo için) GitHub token'ı girin; depoda release yoksa bir pakete sürüm çıkın.</p>
 			<?php else : ?>
 			<div class="table-wrap"><table>
-				<tr><th>Paket</th><th>Tür</th><th>Son sürüm</th><th>Yayın</th></tr>
+				<tr><th>Paket</th><th>Erişim</th><th>Tür</th><th>Son sürüm</th><th>Yayın</th></tr>
 				<?php foreach ( $catalog as $slug => $r ) : ?>
 					<tr>
 						<td><b><?php echo $e( $r['name'] ); ?></b><br><span class="small muted"><?php echo $e( $slug ); ?></span></td>
+						<td><?php echo ! empty( $r['public'] ) ? '<span class="pill ok">Public</span>' : '<span class="pill muted">Anahtarla</span>'; ?><br><span class="small muted"><?php echo $e( $r['repo'] ?? '' ); ?></span></td>
 						<td><?php echo 'theme' === $r['type'] ? 'Tema' : 'Eklenti'; ?></td>
 						<td><?php echo $e( $r['version'] ); ?><?php echo ( isset( $stable[ $slug ] ) && $stable[ $slug ]['version'] === $r['version'] ) ? '' : ' <span class="pill warn">beta</span>'; ?></td>
 						<td class="small"><?php echo $e( str_replace( 'T', ' ', substr( $r['published_at'], 0, 16 ) ) ); ?></td>
@@ -673,13 +689,18 @@ details summary{cursor:pointer;color:var(--green);font-weight:600}
 		$sel = $all ? array() : (array) $current;
 		$id  = 'p' . bin2hex( random_bytes( 3 ) );
 		?>
-		<label>Paketler</label>
+		<label>Private paketler <span class="muted small">(public paketler her siteye açık)</span></label>
 		<select name="scope" onchange="document.getElementById('<?php echo self::e( $id ); ?>').style.display=this.value==='all'?'none':'grid'">
-			<option value="all" <?php echo $all ? 'selected' : ''; ?>>Tüm paketler (yeni eklenenler dahil)</option>
+			<option value="all" <?php echo $all ? 'selected' : ''; ?>>Tüm private paketler (yeni eklenenler dahil)</option>
 			<option value="some" <?php echo $all ? '' : 'selected'; ?>>Yalnız seçilenler</option>
 		</select>
 		<div class="checks" id="<?php echo self::e( $id ); ?>" style="display:<?php echo $all ? 'none' : 'grid'; ?>">
 			<?php foreach ( $catalog as $slug => $r ) : ?>
+				<?php
+				if ( ! empty( $r['public'] ) ) {
+					continue;
+				}
+				?>
 				<label><input type="checkbox" name="packages[]" value="<?php echo self::e( $slug ); ?>" <?php echo ( in_array( $slug, $sel, true ) || 'flx-updater' === $slug ) ? 'checked' : ''; ?> <?php echo 'flx-updater' === $slug ? 'disabled' : ''; ?>> <?php echo self::e( $r['name'] ); ?></label>
 			<?php endforeach; ?>
 		</div>
@@ -707,7 +728,7 @@ details summary{cursor:pointer;color:var(--green);font-weight:600}
 		);
 		$visible = array();
 		foreach ( ( 'beta' === $site['channel'] ? $catalog : $stable ) as $slug => $r ) {
-			if ( $this->server->site_allows( $site, $slug ) ) {
+			if ( $this->server->can_see( $site, $r ) ) {
 				$visible[] = $r['name'] . ' ' . $r['version'];
 			}
 		}
@@ -716,6 +737,21 @@ details summary{cursor:pointer;color:var(--green);font-weight:600}
 		echo '<p class="small">Görebileceği paketler (' . count( $visible ) . '): ' . $e( implode( ', ', $visible ) ?: '—' ) . '</p>';
 		echo '<p class="small">' . ( $seen ? 'Site en son ' . $e( $seen ) . ' bağlandı.' : 'Site henüz bağlanmadı: WordPress › Ayarlar › Flux Updater › "Bağlantıyı test et".' ) . '</p>';
 		echo '</div>';
+	}
+
+	/** Virgülle ayrılmış depo listesi. $allow_empty: boş liste "-" olarak saklanır (kapalı). */
+	private function clean_repos( string $value, string $key, bool $allow_empty = false ): string {
+		$out = array();
+		foreach ( preg_split( '/[\s,]+/', $value ) as $repo ) {
+			$repo = trim( preg_replace( '#^https?://github\.com/#', '', trim( $repo ) ), '/' );
+			if ( preg_match( '#^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$#', $repo ) ) {
+				$out[] = $repo;
+			}
+		}
+		if ( ! $out ) {
+			return $allow_empty ? '-' : (string) ( $this->config[ $key ] ?? '' );
+		}
+		return implode( ', ', array_unique( $out ) );
 	}
 
 	private function clean_repo( string $repo, string $key = 'repo' ): string {

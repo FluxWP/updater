@@ -4,8 +4,9 @@ services:
     build: .
     restart: unless-stopped
     environment:
-      FLX_UPDATE_BASE_URL: https://update.yesilturkiyeist.org
+      FLX_UPDATE_BASE_URL: https://updater.fluxwp.com
       FLX_UPDATE_REPO: FluxWP/fluxwp
+      FLX_UPDATE_PUBLIC_REPOS: FluxWP/wp-extras
       FLX_UPDATE_GITHUB_TOKEN: ${FLX_UPDATE_GITHUB_TOKEN}
       FLX_UPDATE_WEBHOOK_SECRET: ${FLX_UPDATE_WEBHOOK_SECRET}
       FLX_UPDATE_SITES: ${FLX_UPDATE_SITES}
