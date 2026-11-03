@@ -46,7 +46,7 @@ final class Stats {
 	}
 
 	/**
-	 * Site kullanım verisi göndermeye izin verdi mi? FluxWP Panel 1.0.7+ "usage" alanını yollar;
+	 * Site kullanım verisi göndermeye izin verdi mi? FluxWP Panel 1.0.8+ "usage" alanını yollar;
 	 * alan yoksa eski istemcidir (adres ve sürümleri her zaman gönderir).
 	 */
 	public static function usage_allowed( array $body ): bool {

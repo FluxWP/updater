@@ -83,7 +83,7 @@ Güncellemek için yeni zip'i üstüne açın. Ayarlar zip'te olmayan `data/sett
 
 Her `/v1/check` isteğinde kurulu FluxWP paketleri ve sürümleri, FluxWP Panel sürümü, rastgele kurulum kimliği (sunucu başına bir tane, siteden türetilmez) ve varsa site anahtarı gider. Güncelleme için gereken bu kadar.
 
-FluxWP Panel 1.0.7+ site adresini, WordPress ve PHP sürümünü, saat dilimini ve dili yalnız yönetici izin verdiyse ekler (kurulum sihirbazında ya da FluxWP Panel › Ayarlar'da "FluxWP'yi geliştirmemize yardım edin"); izin yoksa `"usage": false` gönderir. İzin yokken sunucu bunların hiçbirini saklamaz, ülke çıkarmaz (`CF-IPCountry` dahil) ve siteyi kurulum kimliğiyle tanır. İzni geri alan sitenin adresli eski kaydı bir sonraki denetimde birleştirilip silinir. `usage` alanı göndermeyen eski istemciler izinli sayılır.
+FluxWP Panel 1.0.8+ site adresini, WordPress ve PHP sürümünü, saat dilimini ve dili yalnız yönetici izin verdiyse ekler (kurulum sihirbazında ya da FluxWP Panel › Ayarlar'da "Ürünü geliştirmemize yardımcı olun"); izin yoksa `"usage": false` gönderir. İzin yokken sunucu bunların hiçbirini saklamaz, ülke çıkarmaz (`CF-IPCountry` dahil) ve siteyi kurulum kimliğiyle tanır. İzni geri alan sitenin adresli eski kaydı bir sonraki denetimde birleştirilip silinir. `usage` alanı göndermeyen eski istemciler izinli sayılır.
 
 IP adresi istatistiklere yazılmaz. `data/access.log` IP'yi yalnız hatalı anahtar denemelerinde (güvenlik) tutar, 90 günden eski satırları siler. Günlük sayaçlar 120 gün, site kayıtları son denetimden sonra 180 gün saklanır.
 
