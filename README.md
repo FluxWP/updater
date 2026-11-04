@@ -58,7 +58,7 @@ To upgrade, extract the new zip over the old one. Settings live in `data/setting
 
 ### Panel
 
-- **Overview:** sites that checked for updates in the last 7/30/90 days (with and without a key), checks, downloads, data sent, a daily chart, installs per package, a country map and the connected sites. Stored in `data/stats.json` (daily totals 120 days, sites 180 days after last seen). IPs are not stored; the country comes from the site's WordPress time zone (FluxWP Panel, or FluxWP Panel 1.6.1+) or Cloudflare's `CF-IPCountry`.
+- **Overview:** sites that checked for updates in the last 7/30/90 days (with and without a key), checks, downloads, data sent, a daily chart, installs per package, a country map and the connected sites. Stored in `data/stats.json` (daily totals 120 days, sites 180 days after last seen). IPs are not stored; the country is looked up from the request's IP while it is handled (see *Countries and security* below).
 - **Resources:** disk, `data/` breakdown, GitHub API quota, package cache age, PHP limits. Old zips and the access log are cleaned from here.
 - **Repository picker:** private, public and app repositories are chosen as tags from the list GitHub returns for the token. Type `owner/repo` and press Enter to add one that is not listed.
 - **Language:** English (default) and Turkish, switched with EN/TR at the top.
@@ -78,7 +78,7 @@ To upgrade, extract the new zip over the old one. Settings live in `data/setting
 
 Every `/v1/check` carries the installed FluxWP packages and versions, the FluxWP Panel version, a random install ID (one per server, not derived from the site) and the site key if there is one. This is what updates need.
 
-FluxWP Panel 1.0.8+ adds the site address, WordPress and PHP version, time zone and language only when the admin opted in ("Help us improve FluxWP" in the setup wizard or FluxWP Panel › Settings), and sends `"usage": false` otherwise. Without opt-in the server stores none of those, does not derive a country (not even from `CF-IPCountry`), and identifies the site by its install ID. When a site withdraws, its earlier record with the address is merged and dropped on the next check. Older clients without the `usage` field are treated as opted in.
+FluxWP Panel 1.0.8+ adds the site address, WordPress and PHP version, time zone and language only when the admin opted in ("Help us improve FluxWP" in the setup wizard or FluxWP Panel › Settings), and sends `"usage": false` otherwise. Without opt-in the server stores none of those and identifies the site by its install ID. The country code is derived from the request's IP regardless of opt-in (the IP is not stored). When a site withdraws, its earlier record with the address is merged and dropped on the next check. Older clients without the `usage` field are treated as opted in.
 
 IP addresses are not written to the statistics. `data/access.log` keeps the IP only for failed key attempts (security) and drops lines older than 90 days. Daily counters are kept 120 days, site records 180 days after the last check.
 
@@ -86,6 +86,15 @@ IP addresses are not written to the statistics. `data/access.log` keeps the IP o
 
 - **Mobile/desktop app:** releases tagged `v<version>` in the app repository (panel › GitHub › App repository). File names decide the platform: `*windows*`, `*macos*`, `*.apk`, `*ios*`.
 - **FluxWP desktop:** `fluxapp-v<version>` releases in the package repository (or `FLX_UPDATE_FLUXAPP_REPO`). File names carry the brand: `fluxapp-<brand>-<version>-macos-universal.dmg`, `.app.tar.gz`, `.app.tar.gz.sig` and `fluxapp-<brand>-<version>-windows-x64-setup.exe`, `-setup.exe.sig`, `.msi` (uploaded by `fluxapp-desktop.yml` in FluxWP/FluxWP). The app asks the `tauri` endpoint and installs signed bundles in the background.
+
+### Countries and security (1.10.0)
+
+- **Country lookup:** every check and download is mapped to a country; only the country code and a counter are stored, the IP is never written anywhere or sent to an outside service. Source: `CF-IPCountry` when the request really comes from a Cloudflare IP (the header is ignored otherwise, so it cannot be spoofed), else the local database `data/geo/country.mmdb` (DB-IP IP to Country Lite, CC BY 4.0). The panel downloads it and refreshes it monthly (db-ip.com, falling back to the jsDelivr/npm copy); a MaxMind GeoLite2-Country.mmdb can be uploaded too.
+- **Traffic by country (Overview › Countries):** sites, checks, downloads, data, blocked requests and top packages per country; click a row for that country's packages (installed on, downloads).
+- **Emergency stop:** `/v1/check`, package and app endpoints return `503` (`"code":"paused"`), keyed sites included. The panel and webhook keep working; `/v1/health` shows `"paused": true`.
+- **Turn keyless off:** keyless requests and disabled keys, `latest.zip` and the app endpoints get `401` (`"code":"public_disabled"`). Sites with an active key are not affected; keys issued from the panel are still delivered.
+- **Country access:** *Block selected countries* or *Allow only selected countries*. A blocked request gets `403` (`"code":"region_blocked"`). An unknown country passes in block mode and is blocked in allow mode. Sites with an active key are exempt by default.
+- Security changes are written to `data/access.log`.
 
 ## Endpoints
 

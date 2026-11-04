@@ -58,7 +58,7 @@ Güncellemek için yeni zip'i üstüne açın. Ayarlar zip'te olmayan `data/sett
 
 ### Panel
 
-- **Genel bakış:** son 7/30/90 günde güncelleme denetleyen siteler (anahtarlı ve anahtarsız), kontrol, indirme, aktarılan veri, günlük grafik, paket başına kurulum, ülke haritası ve bağlanan siteler. `data/stats.json`'da durur (günlük toplamlar 120 gün, siteler son görülmeden 180 gün). IP saklanmaz; ülke sitenin WordPress saat diliminden (FluxWP Panel 1.6.1+) ya da Cloudflare `CF-IPCountry` başlığından bulunur.
+- **Genel bakış:** son 7/30/90 günde güncelleme denetleyen siteler (anahtarlı ve anahtarsız), kontrol, indirme, aktarılan veri, günlük grafik, paket başına kurulum, ülke haritası ve bağlanan siteler. `data/stats.json`'da durur (günlük toplamlar 120 gün, siteler son görülmeden 180 gün). IP saklanmaz; ülke istek anında IP'den bulunur (aşağıda *Ülke ve güvenlik*).
 - **Kaynaklar:** disk, `data/` dağılımı, GitHub API kotası, paket önbelleğinin yaşı, PHP sınırları. Eski zipler ve erişim günlüğü buradan temizlenir.
 - **Depo seçici:** private, public ve uygulama depoları, token'ın gördüğü listeden etiket olarak seçilir. Listede olmayan `owner/repo` yazılıp Enter ile eklenir.
 - **Dil:** İngilizce (varsayılan) ve Türkçe; üstteki EN/TR ile değişir.
@@ -83,9 +83,18 @@ Güncellemek için yeni zip'i üstüne açın. Ayarlar zip'te olmayan `data/sett
 
 Her `/v1/check` isteğinde kurulu FluxWP paketleri ve sürümleri, FluxWP Panel sürümü, rastgele kurulum kimliği (sunucu başına bir tane, siteden türetilmez) ve varsa site anahtarı gider. Güncelleme için gereken bu kadar.
 
-FluxWP Panel 1.0.8+ site adresini, WordPress ve PHP sürümünü, saat dilimini ve dili yalnız yönetici izin verdiyse ekler (kurulum sihirbazında ya da FluxWP Panel › Ayarlar'da "Ürünü geliştirmemize yardımcı olun"); izin yoksa `"usage": false` gönderir. İzin yokken sunucu bunların hiçbirini saklamaz, ülke çıkarmaz (`CF-IPCountry` dahil) ve siteyi kurulum kimliğiyle tanır. İzni geri alan sitenin adresli eski kaydı bir sonraki denetimde birleştirilip silinir. `usage` alanı göndermeyen eski istemciler izinli sayılır.
+FluxWP Panel 1.0.8+ site adresini, WordPress ve PHP sürümünü, saat dilimini ve dili yalnız yönetici izin verdiyse ekler (kurulum sihirbazında ya da FluxWP Panel › Ayarlar'da "Ürünü geliştirmemize yardımcı olun"); izin yoksa `"usage": false` gönderir. İzin yokken sunucu bunların hiçbirini saklamaz ve siteyi kurulum kimliğiyle tanır. Ülke kodu izinden bağımsız olarak isteğin IP'sinden çıkarılır (IP saklanmaz). İzni geri alan sitenin adresli eski kaydı bir sonraki denetimde birleştirilip silinir. `usage` alanı göndermeyen eski istemciler izinli sayılır.
 
 IP adresi istatistiklere yazılmaz. `data/access.log` IP'yi yalnız hatalı anahtar denemelerinde (güvenlik) tutar, 90 günden eski satırları siler. Günlük sayaçlar 120 gün, site kayıtları son denetimden sonra 180 gün saklanır.
+
+### Ülke ve güvenlik (1.10.0)
+
+- **Ülke tespiti:** her kontrol ve indirmede isteğin ülkesi bulunur, yalnız ülke kodu ve sayaç saklanır; IP hiçbir yere yazılmaz ve harici servise gönderilmez. Kaynak: istek gerçekten Cloudflare IP'sinden geliyorsa `CF-IPCountry` (başka yerden gelen sahte başlık yok sayılır), değilse sunucudaki ülke veritabanı `data/geo/country.mmdb` (DB-IP IP to Country Lite, CC BY 4.0). Veritabanı panelden indirilir ve ayda bir kendiliğinden yenilenir (db-ip.com, olmazsa jsDelivr/npm kopyası); MaxMind GeoLite2-Country.mmdb de elle yüklenebilir.
+- **Ülke trafiği (Genel bakış › Ülkeler):** ülke başına site, kontrol, indirme, veri, engellenen istek ve en çok inen paketler; satıra tıklayınca o ülkedeki paketler (kurulu site, indirme).
+- **Acil durdurma:** tüm `/v1/check`, paket ve uygulama uçları `503` (`"code":"paused"`) döner, anahtarlı siteler dahil. Panel ve webhook çalışır. `/v1/health` `"paused": true` gösterir.
+- **Anahtarsız dağıtımı kapat:** anahtarsız ve pasif anahtarlı istekler, `latest.zip` ve uygulama uçları `401` (`"code":"public_disabled"`) alır; aktif anahtarlı siteler etkilenmez, panelden verilen anahtarın teslimi sürer.
+- **Ülke erişimi:** *Seçilen ülkeleri engelle* ya da *Yalnız seçilen ülkelere izin ver*. Engellenen istek `403` (`"code":"region_blocked"`) alır. Ülkesi bulunamayan istek engelle kipinde geçer, izin kipinde engellenir. Varsayılan olarak aktif anahtarlı siteler muaftır.
+- Güvenlik değişiklikleri `data/access.log`'a yazılır.
 
 ## Uç noktalar
 

@@ -1,13 +1,16 @@
 <?php
 /**
  * Kullanım istatistikleri: hangi siteler (anahtarlı/anahtarsız) güncelleme denetliyor,
- * hangi paketleri indiriyor, hangi ülkeden. IP saklanmaz; ülke, sitenin saat diliminden
- * (WordPress timezone_string) ya da Cloudflare'in CF-IPCountry başlığından bulunur.
+ * hangi paketleri indiriyor, hangi ülkeden. IP saklanmaz: istek anında ülke koduna çevrilir
+ * (Geo: Cloudflare CF-IPCountry ya da yerel ülke veritabanı) ve yalnız ülke kodu tutulur.
+ * Ülke bulunamazsa ve site kullanım verisine izin verdiyse WordPress saat diliminden bulunur.
  *
  * data/stats.json:
- *   days    => { "Y-m-d": { c: kontrol, a: anahtarsız kontrol, d: indirme, b: bayt, s: {site_id: 1}, p: {slug: indirme} } }
+ *   days    => { "Y-m-d": { c: kontrol, a: anahtarsız kontrol, d: indirme, b: bayt, s: {site_id: 1}, p: {slug: indirme},
+ *                g: { CC: { c: kontrol, d: indirme, b: bayt, x: engellenen, p: {slug: indirme} } } } }
  *   clients => { site_id: { url, name, key, off, ih, cc, wp, php, upd, use, pk: {slug: sürüm}, first, last, n } }
- *   use: site kullanım verisi göndermeye izin verdi mi (vermediyse url, cc, wp, php boş).
+ *   use: site kullanım verisi göndermeye izin verdi mi (vermediyse url, wp, php boş; cc yalnız istekten).
+ *   Ülkesi bilinmeyen istek g altında "ZZ" ile sayılır.
  *   ih: Flux Updater 1.7.0+ kurulum kimliğinin sha256 özeti (panelden anahtar vermek için).
  */
 
@@ -53,11 +56,15 @@ final class Stats {
 		return ! array_key_exists( 'usage', $body ) || ! empty( $body['usage'] );
 	}
 
-	/** /v1/check isteğini işler. */
-	public function record_check( array $site, array $body ): void {
+	/**
+	 * /v1/check isteğini işler.
+	 *
+	 * @param string $geo İsteğin IP'sinden bulunan ülke ('' bilinmiyor). IP buraya hiç gelmez.
+	 */
+	public function record_check( array $site, array $body, string $geo = '' ): void {
 		$usage = self::usage_allowed( $body );
 		if ( ! $usage ) {
-			// İzin yok: adres, WordPress/PHP sürümü, saat dilimi, dil ve ülke saklanmaz.
+			// İzin yok: adres, WordPress/PHP sürümü, saat dilimi ve dil saklanmaz.
 			unset( $body['site'], $body['wp'], $body['php'], $body['tz'], $body['locale'] );
 		}
 		$url = substr( (string) ( $body['site'] ?? '' ), 0, 200 );
@@ -67,7 +74,8 @@ final class Stats {
 		$anon = ! empty( $site['anon'] );
 		$ih   = Server::install_hash( (string) ( $body['install'] ?? '' ) );
 		$id   = self::client_id( $site, $url, $ih );
-		$cc   = $usage ? self::country( $body ) : '';
+		$cc   = self::valid_cc( $geo ) ? $geo : ( $usage ? self::country( $body ) : '' );
+		$gk   = '' !== $cc ? $cc : 'ZZ';
 		$pkgs = array();
 		foreach ( (array) ( $body['packages'] ?? array() ) as $slug => $ver ) {
 			if ( is_string( $slug ) && preg_match( '/^[a-z0-9-]{1,64}$/', $slug ) && is_scalar( $ver ) ) {
@@ -78,13 +86,14 @@ final class Stats {
 			}
 		}
 		$this->update(
-			function ( array $all ) use ( $id, $anon, $url, $cc, $pkgs, $site, $body, $ih, $usage ) {
+			function ( array $all ) use ( $id, $anon, $url, $cc, $gk, $pkgs, $site, $body, $ih, $usage ) {
 				$day = gmdate( 'Y-m-d' );
 				$d   = $all['days'][ $day ] ?? array();
 				$d['c'] = (int) ( $d['c'] ?? 0 ) + 1;
 				if ( $anon ) {
 					$d['a'] = (int) ( $d['a'] ?? 0 ) + 1;
 				}
+				$d['g'][ $gk ]['c'] = (int) ( $d['g'][ $gk ]['c'] ?? 0 ) + 1;
 				$d['s'][ $id ]       = 1;
 				$all['days'][ $day ] = $d;
 
@@ -116,8 +125,6 @@ final class Stats {
 				}
 				if ( '' !== $cc ) {
 					$c['cc'] = $cc;
-				} elseif ( ! $usage ) {
-					unset( $c['cc'] );
 				}
 				$c['wp']   = substr( (string) ( $body['wp'] ?? '' ), 0, 20 );
 				$c['php']  = substr( (string) ( $body['php'] ?? '' ), 0, 20 );
@@ -137,19 +144,42 @@ final class Stats {
 		return is_array( $c ) ? $c : null;
 	}
 
-	/** İndirilen zip. */
-	public function record_download( array $site, string $slug, int $bytes ): void {
+	/** İndirilen zip. $geo: isteğin ülkesi ('' bilinmiyor). */
+	public function record_download( array $site, string $slug, int $bytes, string $geo = '' ): void {
+		$gk = self::valid_cc( $geo ) ? $geo : 'ZZ';
 		$this->update(
-			function ( array $all ) use ( $slug, $bytes ) {
+			function ( array $all ) use ( $slug, $bytes, $gk ) {
 				$day = gmdate( 'Y-m-d' );
 				$d   = $all['days'][ $day ] ?? array();
 				$d['d'] = (int) ( $d['d'] ?? 0 ) + 1;
 				$d['b'] = (int) ( $d['b'] ?? 0 ) + $bytes;
 				$d['p'][ $slug ] = (int) ( $d['p'][ $slug ] ?? 0 ) + 1;
+				$g      = $d['g'][ $gk ] ?? array();
+				$g['d'] = (int) ( $g['d'] ?? 0 ) + 1;
+				$g['b'] = (int) ( $g['b'] ?? 0 ) + $bytes;
+				$g['p'][ $slug ] = (int) ( $g['p'][ $slug ] ?? 0 ) + 1;
+				$d['g'][ $gk ]   = $g;
 				$all['days'][ $day ] = $d;
 				return $all;
 			}
 		);
+	}
+
+	/** Ülke kuralı ya da dağıtım anahtarı yüzünden geri çevrilen istek. */
+	public function record_blocked( string $geo ): void {
+		$gk = self::valid_cc( $geo ) ? $geo : 'ZZ';
+		$this->update(
+			function ( array $all ) use ( $gk ) {
+				$day = gmdate( 'Y-m-d' );
+				$all['days'][ $day ]['x'] = (int) ( $all['days'][ $day ]['x'] ?? 0 ) + 1;
+				$all['days'][ $day ]['g'][ $gk ]['x'] = (int) ( $all['days'][ $day ]['g'][ $gk ]['x'] ?? 0 ) + 1;
+				return $all;
+			}
+		);
+	}
+
+	public static function valid_cc( string $cc ): bool {
+		return (bool) preg_match( '/^[A-Z]{2}$/', $cc ) && 'ZZ' !== $cc && 'XX' !== $cc;
 	}
 
 	/**
@@ -162,7 +192,8 @@ final class Stats {
 		$start = gmdate( 'Y-m-d', time() - ( $days - 1 ) * DAY_SECONDS );
 		$pstart = gmdate( 'Y-m-d', time() - ( 2 * $days - 1 ) * DAY_SECONDS );
 		$series = array();
-		$tot    = array( 'checks' => 0, 'anon' => 0, 'downloads' => 0, 'bytes' => 0 );
+		$tot    = array( 'checks' => 0, 'anon' => 0, 'downloads' => 0, 'bytes' => 0, 'blocked' => 0 );
+		$geo    = array();
 		$prev   = array( 'checks' => 0, 'downloads' => 0, 'sites' => 0 );
 		$sites  = array();
 		$psites = array();
@@ -183,7 +214,20 @@ final class Stats {
 				$tot['anon']      += (int) ( $d['a'] ?? 0 );
 				$tot['downloads'] += (int) ( $d['d'] ?? 0 );
 				$tot['bytes']     += (int) ( $d['b'] ?? 0 );
+				$tot['blocked']   += (int) ( $d['x'] ?? 0 );
 				$sites            += (array) ( $d['s'] ?? array() );
+				foreach ( (array) ( $d['g'] ?? array() ) as $gk => $g ) {
+					$gk = self::valid_cc( (string) $gk ) ? (string) $gk : '?';
+					$r  = $geo[ $gk ] ?? self::geo_row();
+					$r['checks']    += (int) ( $g['c'] ?? 0 );
+					$r['downloads'] += (int) ( $g['d'] ?? 0 );
+					$r['bytes']     += (int) ( $g['b'] ?? 0 );
+					$r['blocked']   += (int) ( $g['x'] ?? 0 );
+					foreach ( (array) ( $g['p'] ?? array() ) as $slug => $n ) {
+						$r['pk_dl'][ $slug ] = ( $r['pk_dl'][ $slug ] ?? 0 ) + (int) $n;
+					}
+					$geo[ $gk ] = $r;
+				}
 				foreach ( (array) ( $d['p'] ?? array() ) as $slug => $n ) {
 					$dl[ $slug ] = ( $dl[ $slug ] ?? 0 ) + (int) $n;
 				}
@@ -207,10 +251,24 @@ final class Stats {
 			if ( ! empty( $c['key'] ) ) {
 				++$keyed;
 			}
+			$r = $geo[ $cc ] ?? self::geo_row();
+			++$r['sites'];
 			foreach ( array_keys( (array) ( $c['pk'] ?? array() ) ) as $slug ) {
-				$installs[ $slug ] = ( $installs[ $slug ] ?? 0 ) + 1;
+				$installs[ $slug ]      = ( $installs[ $slug ] ?? 0 ) + 1;
+				$r['pk_inst'][ $slug ] = ( $r['pk_inst'][ $slug ] ?? 0 ) + 1;
 			}
+			$geo[ $cc ] = $r;
 		}
+		foreach ( $geo as $k => $r ) {
+			arsort( $geo[ $k ]['pk_dl'] );
+			arsort( $geo[ $k ]['pk_inst'] );
+		}
+		uasort(
+			$geo,
+			static function ( $a, $b ) {
+				return array( $b['checks'] + $b['downloads'], $b['sites'] ) <=> array( $a['checks'] + $a['downloads'], $a['sites'] );
+			}
+		);
 		arsort( $countries );
 		arsort( $installs );
 		arsort( $dl );
@@ -227,6 +285,7 @@ final class Stats {
 			'totals'    => $tot + array( 'sites' => count( $sites ), 'keyed' => $keyed ),
 			'prev'      => $prev,
 			'countries' => $countries,
+			'geo'       => $geo,
 			'installs'  => $installs,
 			'downloads' => $dl,
 			'clients'   => $active,
@@ -234,14 +293,14 @@ final class Stats {
 		);
 	}
 
+	private static function geo_row(): array {
+		return array( 'sites' => 0, 'checks' => 0, 'downloads' => 0, 'bytes' => 0, 'blocked' => 0, 'pk_dl' => array(), 'pk_inst' => array() );
+	}
+
 	/* ------------------------------------------------------------------ */
 
-	/** Ülke kodu: CF-IPCountry > saat dilimi > yerel ayarın bölgesi. */
+	/** Siteden gelen ülke ipucu (yalnız kullanım verisi izniyle): saat dilimi > yerel ayarın bölgesi. */
 	public static function country( array $body ): string {
-		$cf = strtoupper( (string) ( $_SERVER['HTTP_CF_IPCOUNTRY'] ?? '' ) );
-		if ( preg_match( '/^[A-Z]{2}$/', $cf ) && 'XX' !== $cf && 'T1' !== $cf ) {
-			return $cf;
-		}
 		$cc = self::tz_country( (string) ( $body['tz'] ?? '' ) );
 		if ( '' !== $cc ) {
 			return $cc;
