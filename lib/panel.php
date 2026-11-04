@@ -15,6 +15,23 @@ final class Panel {
 	/** Siteye her zaman açık güncelleyici paketi: Flux Setup (güncelleyiciyi içerir; ayrı Flux Updater paketi artık yok). */
 	const UPDATER_SLUGS = array( 'flx-setup' );
 
+	/** ISO 3166-1 alpha-2 ülke kodları (+ XK Kosova), ülke erişimi seçicisi için. */
+	const ISO = array(
+		'AD', 'AE', 'AF', 'AG', 'AI', 'AL', 'AM', 'AO', 'AQ', 'AR', 'AS', 'AT', 'AU', 'AW', 'AX', 'AZ', 'BA', 'BB', 'BD', 'BE',
+		'BF', 'BG', 'BH', 'BI', 'BJ', 'BL', 'BM', 'BN', 'BO', 'BQ', 'BR', 'BS', 'BT', 'BV', 'BW', 'BY', 'BZ', 'CA', 'CC', 'CD',
+		'CF', 'CG', 'CH', 'CI', 'CK', 'CL', 'CM', 'CN', 'CO', 'CR', 'CU', 'CV', 'CW', 'CX', 'CY', 'CZ', 'DE', 'DJ', 'DK', 'DM',
+		'DO', 'DZ', 'EC', 'EE', 'EG', 'EH', 'ER', 'ES', 'ET', 'FI', 'FJ', 'FK', 'FM', 'FO', 'FR', 'GA', 'GB', 'GD', 'GE', 'GF',
+		'GG', 'GH', 'GI', 'GL', 'GM', 'GN', 'GP', 'GQ', 'GR', 'GS', 'GT', 'GU', 'GW', 'GY', 'HK', 'HM', 'HN', 'HR', 'HT', 'HU',
+		'ID', 'IE', 'IL', 'IM', 'IN', 'IO', 'IQ', 'IR', 'IS', 'IT', 'JE', 'JM', 'JO', 'JP', 'KE', 'KG', 'KH', 'KI', 'KM', 'KN',
+		'KP', 'KR', 'KW', 'KY', 'KZ', 'LA', 'LB', 'LC', 'LI', 'LK', 'LR', 'LS', 'LT', 'LU', 'LV', 'LY', 'MA', 'MC', 'MD', 'ME',
+		'MF', 'MG', 'MH', 'MK', 'ML', 'MM', 'MN', 'MO', 'MP', 'MQ', 'MR', 'MS', 'MT', 'MU', 'MV', 'MW', 'MX', 'MY', 'MZ', 'NA',
+		'NC', 'NE', 'NF', 'NG', 'NI', 'NL', 'NO', 'NP', 'NR', 'NU', 'NZ', 'OM', 'PA', 'PE', 'PF', 'PG', 'PH', 'PK', 'PL', 'PM',
+		'PN', 'PR', 'PS', 'PT', 'PW', 'PY', 'QA', 'RE', 'RO', 'RS', 'RU', 'RW', 'SA', 'SB', 'SC', 'SD', 'SE', 'SG', 'SH', 'SI',
+		'SJ', 'SK', 'SL', 'SM', 'SN', 'SO', 'SR', 'SS', 'ST', 'SV', 'SX', 'SY', 'SZ', 'TC', 'TD', 'TF', 'TG', 'TH', 'TJ', 'TK',
+		'TL', 'TM', 'TN', 'TO', 'TR', 'TT', 'TV', 'TW', 'TZ', 'UA', 'UG', 'UM', 'US', 'UY', 'UZ', 'VA', 'VC', 'VE', 'VG', 'VI',
+		'VN', 'VU', 'WF', 'WS', 'XK', 'YE', 'YT', 'ZA', 'ZM', 'ZW',
+	);
+
 	/** @var Server */
 	private $server;
 
@@ -104,6 +121,10 @@ final class Panel {
 			'webhook' => array( __( 'Webhook secret üretildi. GitHub\'a eklemeyi unutmayın.' ), 'ok' ),
 			'zips'    => array( __( 'Dosya saklama ayarı kaydedildi.' ), 'ok' ),
 			'log'     => array( sprintf( __( 'Erişim günlüğü temizlendi (%s).' ), self::size( (int) ( $_GET['b'] ?? 0 ) ) ), 'ok' ),
+			'switch'  => array( __( 'Dağıtım ayarı kaydedildi.' ), 'ok' ),
+			'georule' => array( __( 'Ülke erişimi kaydedildi.' ), 'ok' ),
+			'geodb'   => array( __( 'Ülke veritabanı güncellendi.' ), 'ok' ),
+			'geodel'  => array( __( 'Ülke veritabanı silindi.' ), 'ok' ),
 			'pruned'  => array( sprintf( '%d eski zip silindi (%s).', (int) ( $_GET['n'] ?? 0 ), self::size( (int) ( $_GET['b'] ?? 0 ) ) ), 'ok' ),
 		);
 		$m = (string) ( $_GET['m'] ?? '' );
@@ -172,6 +193,49 @@ final class Panel {
 			case 'prune_zips':
 				$r = $this->server->prune_zips();
 				$this->redirect( 'pruned', array( 'n' => (int) $r['deleted'], 'b' => (int) $r['bytes'] ) );
+				return;
+
+			case 'save_switch':
+				$this->do_save_switch();
+				return;
+
+			case 'save_geo':
+				$this->do_save_geo();
+				return;
+
+			case 'geo_update':
+				@set_time_limit( 120 );
+				try {
+					$this->server->geo()->update();
+					$this->redirect( 'geodb' );
+				} catch ( \Throwable $ex ) {
+					$this->notice( __( 'Ülke veritabanı indirilemedi: ' ) . $ex->getMessage(), 'err' );
+					$this->page( __( 'Panel' ), array( $this, 'view_dashboard' ) );
+				}
+				return;
+
+			case 'geo_upload':
+				$f = $_FILES['mmdb'] ?? null;
+				try {
+					if ( ! is_array( $f ) || UPLOAD_ERR_OK !== (int) ( $f['error'] ?? -1 ) || ! is_uploaded_file( (string) $f['tmp_name'] ) ) {
+						throw new \RuntimeException( __( 'dosya yüklenemedi' ) );
+					}
+					$this->server->geo()->upload( (string) $f['tmp_name'], (string) ( $f['name'] ?? '' ) );
+					$this->redirect( 'geodb' );
+				} catch ( \Throwable $ex ) {
+					$this->notice( __( 'Ülke veritabanı yüklenemedi: ' ) . $ex->getMessage(), 'err' );
+					$this->page( __( 'Panel' ), array( $this, 'view_dashboard' ) );
+				}
+				return;
+
+			case 'geo_delete':
+				$this->server->geo()->delete();
+				$this->redirect( 'geodel' );
+				return;
+
+			case 'geo_lookup':
+				$ip = trim( (string) ( $_POST['ip'] ?? '' ) );
+				$this->page( __( 'Panel' ), array( $this, 'view_dashboard' ), array( 'geo_lookup' => array( $ip, filter_var( $ip, FILTER_VALIDATE_IP ) ? $this->server->geo()->lookup( $ip ) : null ) ) );
 				return;
 
 			case 'add_site':
@@ -483,6 +547,47 @@ final class Panel {
 		$this->page( __( 'Panel' ), array( $this, 'view_dashboard' ), array( 'new_key' => $key, 'new_name' => $sites[ $hash ]['name'], 'issued' => $hash ) );
 	}
 
+	/** Acil durdurma ve anahtarsız dağıtım anahtarları. */
+	private function do_save_switch(): void {
+		$which = (string) ( $_POST['switch'] ?? '' );
+		if ( in_array( $which, array( 'lockdown', 'public_off' ), true ) ) {
+			$on = ! empty( $_POST['on'] );
+			Settings::update( $this->data_dir, array( $which => $on ) );
+			$this->server_log( $which . ( $on ? ' on' : ' off' ) );
+		}
+		$this->redirect( 'switch', array(), 'security' );
+	}
+
+	private function do_save_geo(): void {
+		$mode = (string) ( $_POST['geo_mode'] ?? 'off' );
+		$mode = in_array( $mode, array( 'off', 'deny', 'allow' ), true ) ? $mode : 'off';
+		$list = array();
+		foreach ( preg_split( '/[\s,]+/', strtoupper( (string) ( $_POST['geo_countries'] ?? '' ) ) ) as $cc ) {
+			if ( in_array( $cc, self::ISO, true ) ) {
+				$list[ $cc ] = $cc;
+			}
+		}
+		sort( $list );
+		Settings::update(
+			$this->data_dir,
+			array(
+				'geo_mode'         => $mode,
+				'geo_countries'    => array_values( $list ),
+				'geo_keyed_exempt' => ! empty( $_POST['geo_keyed_exempt'] ),
+				'geo_auto'         => ! empty( $_POST['geo_auto'] ),
+			)
+		);
+		$this->server_log( 'geo ' . $mode . ' ' . implode( ',', $list ) );
+		$this->redirect( 'georule', array(), 'security' );
+	}
+
+	/** Güvenlik değişikliklerini access.log'a yazar (kim, ne zaman). */
+	private function server_log( string $msg ): void {
+		if ( is_dir( $this->data_dir ) ) {
+			@file_put_contents( $this->data_dir . '/access.log', gmdate( 'c' ) . "\tadmin\t" . str_replace( array( "\n", "\r", "\t" ), ' ', $this->admin_user() . ' ' . $msg ) . "\n", FILE_APPEND | LOCK_EX );
+		}
+	}
+
 	/** Anahtarlı site satırının bağlantı kimliği. */
 	private static function key_anchor( string $hash ): string {
 		return 'key-' . substr( $hash, 0, 15 );
@@ -524,9 +629,9 @@ final class Panel {
 		$this->notice_type = $type;
 	}
 
-	private function redirect( string $msg = '', array $extra = array() ): void {
+	private function redirect( string $msg = '', array $extra = array(), string $anchor = '' ): void {
 		$q = $msg ? '?' . http_build_query( array( 'm' => $msg ) + $extra ) : '';
-		header( 'Location: ' . $this->server->base_url() . '/admin' . $q, true, 303 );
+		header( 'Location: ' . $this->server->base_url() . '/admin' . $q . ( $anchor ? '#' . $anchor : '' ), true, 303 );
 	}
 
 	private static function size( int $bytes ): string {
@@ -618,6 +723,14 @@ table.mini td{padding:5px 2px;font-size:13px}.dot{display:inline-block;width:8px
 .chip button{border:0;background:transparent;color:inherit;width:20px;height:20px;border-radius:50%;cursor:pointer;font-size:15px;line-height:1;padding:0}.chip button:hover{background:#c9e7d1}
 .chip-in{flex:1;min-width:140px;border:0!important;outline:0;padding:4px!important;font:inherit;background:transparent}
 .chip-dd{position:absolute;left:-1px;right:-1px;top:calc(100% + 4px);background:#fff;border:1px solid var(--line);border-radius:8px;box-shadow:0 10px 30px rgba(0,0,0,.12);max-height:260px;overflow:auto;z-index:20}
+.banner{padding:10px 14px;border-radius:8px;margin-bottom:12px;border:1px solid}.banner.err{background:var(--red-bg);color:#7d1f14;border-color:#efc2bc}.banner.warn{background:var(--amber-bg);color:#6b4a00;border-color:#efd99a}.banner a{color:inherit;font-weight:600}
+.switch-row{display:flex;gap:12px;align-items:flex-start;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--line)}.switch-row p{margin:4px 0 0}.switch-row form{flex:none}
+.seg-radio{display:flex;flex-wrap:wrap;gap:6px}.seg-radio label{display:inline-flex;gap:6px;align-items:center;margin:0;font-weight:500;padding:6px 12px;border:1px solid var(--line);border-radius:999px;cursor:pointer}.seg-radio label:has(input:checked){border-color:var(--green);background:var(--green-bg);color:#14531f}
+label.check{display:flex;gap:8px;align-items:center;font-weight:400}
+.chip .cc{background:#fff}
+table.geo tr.has{cursor:pointer}table.geo tr.has:hover td{background:#f8faf9}table.geo .chev{font-style:normal;color:var(--muted);display:inline-block;margin-left:4px;transition:transform .15s}table.geo tr[aria-expanded=true] .chev{transform:rotate(90deg)}
+tr.geo-detail>td{background:#f8faf9;padding:6px 10px 10px;height:auto}table.mini.pk{max-width:560px}table.mini.pk th{font-size:11px}.blk{color:var(--red);font-weight:600}
+@media(max-width:640px){.hide-sm{display:none}.switch-row{flex-direction:column}table.geo td.lbl{max-width:140px}table.mini.pk td,table.mini.pk th{padding:5px 4px}table.geo .txt{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}table.geo .chev{display:none}}
 .chip-dd div{padding:7px 10px;cursor:pointer;display:flex;justify-content:space-between;gap:8px}.chip-dd div.on,.chip-dd div:hover{background:var(--green-bg)}.chip-dd small{color:var(--muted)}.chip-dd .lock{font-size:11px;color:var(--amber);font-weight:600}.chip-dd .note{cursor:default;color:var(--muted);font-size:12px}.chip-dd .note:hover{background:none}
 </style>
 </head>
@@ -670,6 +783,55 @@ var L = <?php echo json_encode( array(
 		host.addEventListener('mouseleave', function () { tip.style.display = 'none'; });
 	});
 
+	// Ülke trafiği: satır açılınca paketler.
+	document.querySelectorAll('table.geo tr.geo-row.has').forEach(function (row) {
+		function toggle() {
+			var d = row.nextElementSibling; if (!d || !d.classList.contains('geo-detail')) return;
+			d.hidden = !d.hidden; row.setAttribute('aria-expanded', d.hidden ? 'false' : 'true');
+		}
+		row.addEventListener('click', toggle);
+		row.addEventListener('keydown', function (ev) { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); toggle(); } });
+	});
+
+	// Ülke seçici.
+	document.querySelectorAll('.cc-pick').forEach(function (box) {
+		var hidden = box.querySelector('input[type=hidden]'), input = box.querySelector('.chip-in');
+		var opts = Array.prototype.map.call(document.querySelectorAll('#cc-list option'), function (o) { return o.value; });
+		function values() { return Array.prototype.map.call(box.querySelectorAll('.chip'), function (c) { return c.getAttribute('data-v'); }); }
+		function sync() { hidden.value = values().join(','); }
+		function find(v) {
+			v = v.trim(); if (!v) return null;
+			var up = v.toUpperCase(), lo = v.toLowerCase();
+			for (var i = 0; i < opts.length; i++) {
+				var code = opts[i].slice(0, 2), name = opts[i].slice(5);
+				if (up === code || up.slice(0, 5) === code + ' ·' || name.toLowerCase() === lo) return opts[i];
+			}
+			var hits = opts.filter(function (o) { return o.slice(5).toLowerCase().indexOf(lo) === 0; });
+			return hits.length === 1 ? hits[0] : null;
+		}
+		function add(v) {
+			var o = find(v); if (!o) return false;
+			var code = o.slice(0, 2);
+			if (values().indexOf(code) < 0) {
+				var c = document.createElement('span'); c.className = 'chip'; c.setAttribute('data-v', code);
+				var b = document.createElement('b'); b.className = 'cc'; b.textContent = code; c.appendChild(b);
+				c.appendChild(document.createTextNode(o.slice(5)));
+				var x = document.createElement('button'); x.type = 'button'; x.textContent = '×'; x.setAttribute('aria-label', L.remove.replace('%s', code));
+				c.appendChild(x); box.insertBefore(c, input); sync();
+			}
+			return true;
+		}
+		box.addEventListener('click', function (ev) {
+			if (ev.target.tagName === 'BUTTON' && ev.target.parentNode.classList.contains('chip')) { ev.target.parentNode.remove(); sync(); return; }
+			input.focus();
+		});
+		input.addEventListener('input', function () { if (opts.indexOf(input.value) >= 0 && add(input.value)) input.value = ''; });
+		input.addEventListener('keydown', function (ev) {
+			if (ev.key === 'Enter' || ev.key === ',') { ev.preventDefault(); if (add(input.value)) input.value = ''; }
+			else if (ev.key === 'Backspace' && !input.value) { var ch = box.querySelectorAll('.chip'); if (ch.length) { ch[ch.length - 1].remove(); sync(); } }
+		});
+	});
+
 	// Depo seçici.
 	var repos = null;
 	function load(fresh) {
@@ -681,7 +843,7 @@ var L = <?php echo json_encode( array(
 		return repos;
 	}
 	var valid = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
-	document.querySelectorAll('.chips').forEach(function (box) {
+	document.querySelectorAll('.chips:not(.cc-pick)').forEach(function (box) {
 		var hidden = box.querySelector('input[type=hidden]'), input = box.querySelector('.chip-in'), dd = box.querySelector('.chip-dd');
 		var mode = box.getAttribute('data-mode'), single = box.hasAttribute('data-single'), active = -1;
 		function values() { return Array.prototype.map.call(box.querySelectorAll('.chip'), function (c) { return c.getAttribute('data-v'); }); }
@@ -804,6 +966,15 @@ var L = <?php echo json_encode( array(
 		$states = $this->server->site_states();
 		$sites  = (array) $this->config['sites'];
 
+		if ( ! empty( $this->config['lockdown'] ) ) {
+			echo '<div class="banner err"><b>' . $e( __( 'Acil durdurma açık.' ) ) . '</b> ' . $e( __( 'Hiçbir siteye güncelleme, paket ya da uygulama dağıtılmıyor (503).' ) ) . ' <a href="#security">' . $e( __( 'Güvenlik' ) ) . '</a></div>';
+		} elseif ( ! empty( $this->config['public_off'] ) ) {
+			echo '<div class="banner warn"><b>' . $e( __( 'Anahtarsız dağıtım kapalı.' ) ) . '</b> ' . $e( __( 'Yalnız aktif site anahtarı olan siteler paket alıyor.' ) ) . ' <a href="#security">' . $e( __( 'Güvenlik' ) ) . '</a></div>';
+		}
+		if ( 'off' !== (string) $this->config['geo_mode'] && ! $this->server->geo()->status()['ok'] ) {
+			echo '<div class="banner warn"><b>' . $e( __( 'Ülke erişimi açık ama ülke veritabanı yok.' ) ) . '</b> ' . $e( 'allow' === $this->config['geo_mode'] ? __( 'Ülkesi bilinmeyen istekler engelleniyor.' ) : __( 'Kural yalnız Cloudflare arkasındaki isteklerde çalışır.' ) ) . ' <a href="#security">' . $e( __( 'Güvenlik' ) ) . '</a></div>';
+		}
+
 		// Yeni üretilen anahtar: yalnız bu yanıtta görünür.
 		if ( ! empty( $args['new_key'] ) ) {
 			$key = $args['new_key'];
@@ -833,6 +1004,7 @@ var L = <?php echo json_encode( array(
 			$this->view_key_test( (string) $args['test_key'], $catalog, $stable, $states );
 		}
 		$this->view_usage( $catalog );
+		$this->view_security( $args );
 		?>
 		<h2 class="sec" id="settings"><?php echo __( 'Ayarlar' ); ?></h2>
 		<div class="grid">
@@ -1189,7 +1361,7 @@ var L = <?php echo json_encode( array(
 		$base  = $this->server->base_url() . '/admin';
 		?>
 		<nav class="tabs-nav">
-			<a href="#usage"><?php echo __( 'Genel bakış' ); ?></a><a href="#resources"><?php echo __( 'Kaynaklar' ); ?></a><a href="#settings"><?php echo __( 'Ayarlar' ); ?></a><a href="#keys"><?php echo __( 'Anahtarlı siteler' ); ?></a><a href="#packages"><?php echo __( 'Paketler' ); ?></a>
+			<a href="#usage"><?php echo __( 'Genel bakış' ); ?></a><a href="#countries"><?php echo __( 'Ülkeler' ); ?></a><a href="#resources"><?php echo __( 'Kaynaklar' ); ?></a><a href="#security"><?php echo __( 'Güvenlik' ); ?></a><a href="#settings"><?php echo __( 'Ayarlar' ); ?></a><a href="#keys"><?php echo __( 'Anahtarlı siteler' ); ?></a><a href="#packages"><?php echo __( 'Paketler' ); ?></a>
 		</nav>
 		<div class="sec-head" id="usage">
 			<h2 class="sec"><?php echo __( 'Genel bakış' ); ?></h2>
@@ -1206,7 +1378,7 @@ var L = <?php echo json_encode( array(
 			echo self::kpi( __( 'Kontrol isteği' ), self::n( $T['checks'] ), self::delta( $T['checks'], $P['checks'] ), _f( '%s anahtarsız', self::n( $T['anon'] ) ), 'blue', 'check' );
 			echo self::kpi( __( 'İndirme' ), self::n( $T['downloads'] ), self::delta( $T['downloads'], $P['downloads'] ), _f( 'Önceki dönem: %s', self::n( $P['downloads'] ) ), 'amber', 'down' );
 			echo self::kpi( __( 'Aktarılan' ), $e( self::size( (int) $T['bytes'] ) ), '', __( 'Zip indirmeleri' ), 'teal', 'data' );
-			echo self::kpi( __( 'Ülke' ), self::n( count( $known ) ), '', isset( $S['countries']['?'] ) ? _f( '%s sitenin ülkesi bilinmiyor', self::n( $S['countries']['?'] ) ) : __( 'Sitelerin saat diliminden' ), 'rose', 'globe' );
+			echo self::kpi( __( 'Ülke' ), self::n( count( $known ) ), '', isset( $S['countries']['?'] ) ? _f( '%s sitenin ülkesi bilinmiyor', self::n( $S['countries']['?'] ) ) : __( 'İstekten, IP saklanmadan' ), 'rose', 'globe' );
 			?>
 		</div>
 
@@ -1306,9 +1478,10 @@ var L = <?php echo json_encode( array(
 				<p><button type="button" class="btn sec sm" onclick="document.querySelectorAll('#clients tr.more').forEach(function(r){r.hidden=false});this.remove()"><?php echo $e( _f( 'Tümünü göster (%s)', self::n( count( $S['clients'] ) ) ) ); ?></button></p>
 			<?php endif; ?>
 			<?php endif; ?>
-			<p class="small muted"><?php echo __( 'IP saklanmaz. Ülke, sitenin WordPress saat diliminden bulunur (Cloudflare arkasındaysa CF-IPCountry). Flux Updater 1.6.1\'den eskiler saat dilimi göndermez (Flux Setup gönderir).' ); ?></p>
+			<p class="small muted"><?php echo __( 'IP saklanmaz. Ülke, istek anında IP\'den bulunur (Cloudflare arkasındaysa CF-IPCountry, değilse sunucudaki ülke veritabanı) ve yalnız ülke kodu tutulur. Bulunamazsa ve site izin verdiyse WordPress saat diliminden.' ); ?></p>
 		</div>
 		<?php
+		$this->view_geo_traffic( $S, $catalog );
 		$this->view_resources();
 	}
 
@@ -1335,6 +1508,205 @@ var L = <?php echo json_encode( array(
 			return '<a href="#' . $e( self::key_anchor( $pending[ $ih ] ) ) . '"><span class="pill warn">' . $e( __( 'Teslim bekliyor' ) ) . '</span></a>';
 		}
 		return $out . '<form method="post" class="inline give">' . $this->hidden( 'issue_key' ) . '<input type="hidden" name="client" value="' . $e( $cid ) . '"><button class="btn sm">' . $e( __( 'Anahtar ver' ) ) . '</button></form>';
+	}
+
+	/** Ülke trafiği: her ülkeden site, kontrol, indirme, veri, engellenen; satır açılınca paketler. */
+	private function view_geo_traffic( array $S, array $catalog ): void {
+		$e   = array( __CLASS__, 'e' );
+		$geo = $S['geo'];
+		$st  = $this->server->geo()->status();
+		?>
+		<div class="card" id="countries">
+			<div class="row" style="justify-content:space-between">
+				<h2><?php echo __( 'Ülke trafiği' ); ?></h2>
+				<span class="small muted"><?php echo $e( _f( '%1$s ülke · %2$s engellenen istek', self::n( count( array_diff_key( $geo, array( '?' => 0 ) ) ) ), self::n( $S['totals']['blocked'] ) ) ); ?></span>
+			</div>
+			<?php if ( ! $st['ok'] ) : ?>
+				<p class="small"><span class="pill warn"><?php echo __( 'Ülke veritabanı yok' ); ?></span> <?php echo __( 'Cloudflare arkasında değilseniz ülkeler bilinmiyor görünür.' ); ?> <a href="#security"><?php echo __( 'Veritabanını indir' ); ?></a></p>
+			<?php endif; ?>
+			<?php if ( ! $geo ) : ?>
+				<p class="empty"><?php echo __( 'Bu aralıkta kayıt yok.' ); ?></p>
+			<?php else : ?>
+			<?php
+			$gmax = 1;
+			foreach ( $geo as $r ) {
+				$gmax = max( $gmax, $r['checks'] + $r['downloads'] );
+			}
+			?>
+			<div class="table-wrap"><table class="bars geo">
+				<tr><th><?php echo __( 'Ülke' ); ?></th><th class="n"><?php echo __( 'Site' ); ?></th><th class="n hide-sm"><?php echo __( 'Kontrol' ); ?></th><th class="n"><?php echo __( 'İndirme' ); ?></th><th class="n hide-sm"><?php echo __( 'Veri' ); ?></th><th class="n"><?php echo __( 'Engellenen' ); ?></th><th class="hide-sm"><?php echo __( 'En çok inen' ); ?></th></tr>
+				<?php
+				$i = 0;
+				foreach ( $geo as $cc => $r ) :
+					$top = array();
+					foreach ( array_slice( $r['pk_dl'], 0, 3, true ) as $slug => $n ) {
+						$top[] = ( $catalog[ $slug ]['name'] ?? $slug ) . ' ' . self::n( $n );
+					}
+					$more = ++$i > 12;
+					$has  = $r['pk_dl'] || $r['pk_inst'];
+					?>
+					<tr class="geo-row<?php echo $more ? ' more' : ''; ?><?php echo $has ? ' has' : ''; ?>"<?php echo $more ? ' hidden' : ''; ?> data-k="<?php echo $e( $cc ); ?>"<?php echo $has ? ' tabindex="0" aria-expanded="false"' : ''; ?>>
+						<td class="lbl"><span class="bar" style="width:<?php echo round( ( $r['checks'] + $r['downloads'] ) / $gmax * 100, 1 ); ?>%"></span><span class="txt"><?php if ( '?' !== $cc ) : ?><b class="cc"><?php echo $e( $cc ); ?></b><?php endif; ?><?php echo $e( self::country_name( (string) $cc ) ); ?><?php echo $has ? ' <i class="chev" aria-hidden="true">›</i>' : ''; ?></span></td>
+						<td class="n"><?php echo self::n( $r['sites'] ); ?></td>
+						<td class="n hide-sm"><?php echo self::n( $r['checks'] ); ?></td>
+						<td class="n"><?php echo self::n( $r['downloads'] ); ?></td>
+						<td class="n hide-sm"><?php echo $e( self::size( (int) $r['bytes'] ) ); ?></td>
+						<td class="n"><?php echo $r['blocked'] ? '<span class="blk">' . self::n( $r['blocked'] ) . '</span>' : '<span class="muted">0</span>'; ?></td>
+						<td class="small muted hide-sm"><?php echo $e( implode( ' · ', $top ) ?: '—' ); ?></td>
+					</tr>
+					<?php if ( $has ) : ?>
+					<tr class="geo-detail" hidden data-for="<?php echo $e( $cc ); ?>"><td colspan="7">
+						<table class="mini pk">
+							<tr><th><?php echo __( 'Paket' ); ?></th><th class="n"><?php echo __( 'Kurulu site' ); ?></th><th class="n"><?php echo __( 'İndirme' ); ?></th></tr>
+							<?php
+							$slugs = array_keys( $r['pk_inst'] + $r['pk_dl'] );
+							usort(
+								$slugs,
+								static function ( $a, $b ) use ( $r ) {
+									return array( $r['pk_inst'][ $b ] ?? 0, $r['pk_dl'][ $b ] ?? 0 ) <=> array( $r['pk_inst'][ $a ] ?? 0, $r['pk_dl'][ $a ] ?? 0 );
+								}
+							);
+							foreach ( $slugs as $slug ) :
+								?>
+								<tr><td><?php echo $e( $catalog[ $slug ]['name'] ?? $slug ); ?> <span class="muted small"><?php echo $e( $slug ); ?></span></td><td class="n"><?php echo self::n( $r['pk_inst'][ $slug ] ?? 0 ); ?></td><td class="n"><?php echo self::n( $r['pk_dl'][ $slug ] ?? 0 ); ?></td></tr>
+							<?php endforeach; ?>
+						</table>
+					</td></tr>
+					<?php endif; ?>
+				<?php endforeach; ?>
+			</table></div>
+			<?php if ( count( $geo ) > 12 ) : ?>
+				<p><button type="button" class="btn sec sm" onclick="document.querySelectorAll('table.geo tr.geo-row.more').forEach(function(r){r.hidden=false});this.remove()"><?php echo $e( _f( 'Tümünü göster (%s)', self::n( count( $geo ) ) ) ); ?></button></p>
+			<?php endif; ?>
+			<?php endif; ?>
+			<p class="small muted"><?php echo __( 'Kontrol ve indirmeler her istekte sayılır; kullanım verisi izni gerekmez. Site ve kurulu paket sayısı, bu aralıkta kontrol yapan sitelerden. Satıra tıklayınca o ülkedeki paketler açılır.' ); ?></p>
+		</div>
+		<?php
+	}
+
+	/** Güvenlik: acil durdurma, anahtarsız dağıtım, ülke erişimi, ülke veritabanı. */
+	private function view_security( array $args ): void {
+		$e       = array( __CLASS__, 'e' );
+		$lock    = ! empty( $this->config['lockdown'] );
+		$puboff  = ! empty( $this->config['public_off'] );
+		$haspub  = (bool) $this->server->public_repos() || (bool) $this->server->public_packages();
+		$mode    = (string) ( $this->config['geo_mode'] ?? 'off' );
+		$list    = $this->server->geo_countries();
+		$st      = $this->server->geo()->status();
+		$me      = $this->server->geo()->request_country();
+		$confirm = static function ( string $msg ) use ( $e ): string {
+			return ' onsubmit="return confirm(' . $e( json_encode( $msg, JSON_UNESCAPED_UNICODE ) ) . ')"';
+		};
+		?>
+		<div class="sec-head" id="security"><h2 class="sec"><?php echo __( 'Güvenlik' ); ?></h2></div>
+		<div class="grid">
+			<div class="card">
+				<h2><?php echo __( 'Dağıtım anahtarları' ); ?></h2>
+				<div class="switch-row">
+					<div>
+						<b><?php echo __( 'Acil durdurma' ); ?></b> <?php echo $lock ? '<span class="pill err">' . $e( __( 'Durduruldu' ) ) . '</span>' : '<span class="pill ok">' . $e( __( 'Dağıtım açık' ) ) . '</span>'; ?>
+						<p class="small muted"><?php echo __( 'Tüm güncelleme kontrolleri, paket ve uygulama indirmeleri 503 ile durur (anahtarlı siteler dahil). Panel ve webhook çalışmaya devam eder.' ); ?></p>
+					</div>
+					<form method="post"<?php echo $confirm( $lock ? __( 'Dağıtım yeniden açılsın mı?' ) : __( 'Tüm dağıtım durdurulsun mu? Hiçbir site güncelleme alamaz.' ) ); ?>>
+						<?php echo $this->hidden( 'save_switch' ); ?><input type="hidden" name="switch" value="lockdown"><input type="hidden" name="on" value="<?php echo $lock ? '' : '1'; ?>">
+						<button class="btn sm <?php echo $lock ? '' : 'danger'; ?>"><?php echo $lock ? __( 'Dağıtımı aç' ) : __( 'Tümünü durdur' ); ?></button>
+					</form>
+				</div>
+				<div class="switch-row">
+					<div>
+						<b><?php echo __( 'Anahtarsız dağıtım' ); ?></b> <?php echo $puboff ? '<span class="pill err">' . $e( __( 'Kapalı' ) ) . '</span>' : ( $haspub ? '<span class="pill ok">' . $e( __( 'Açık' ) ) . '</span>' : '<span class="pill muted">' . $e( __( 'Public depo yok' ) ) . '</span>' ); ?>
+						<p class="small muted"><?php echo __( 'Kapatınca anahtarsız ve pasif anahtarlı istekler (public paketler, latest.zip indirme butonu, masaüstü/mobil uygulama) 401 alır. Aktif anahtarlı siteler etkilenmez. Panelden verilen anahtarın teslimi sürer.' ); ?></p>
+					</div>
+					<form method="post"<?php echo $confirm( $puboff ? __( 'Anahtarsız dağıtım yeniden açılsın mı?' ) : __( 'Anahtarsız dağıtım kapatılsın mı? Anahtarı olmayan siteler ve uygulamalar güncelleme alamaz.' ) ); ?>>
+						<?php echo $this->hidden( 'save_switch' ); ?><input type="hidden" name="switch" value="public_off"><input type="hidden" name="on" value="<?php echo $puboff ? '' : '1'; ?>">
+						<button class="btn sm <?php echo $puboff ? '' : 'danger'; ?>"><?php echo $puboff ? __( 'Anahtarsız dağıtımı aç' ) : __( 'Anahtarsızları kapat' ); ?></button>
+					</form>
+				</div>
+				<p class="small muted"><?php echo __( 'Her değişiklik erişim günlüğüne yazılır.' ); ?></p>
+			</div>
+
+			<div class="card">
+				<h2><?php echo __( 'Ülke veritabanı' ); ?></h2>
+				<?php if ( $st['ok'] ) : ?>
+					<p><span class="pill ok"><?php echo __( 'Kurulu' ); ?></span> <span class="small"><?php echo $e( trim( $st['type'] . ' · ' . self::size( $st['size'] ) ) ); ?></span></p>
+					<table class="mini">
+						<tr><td><?php echo __( 'Kaynak' ); ?></td><td class="n"><?php echo $e( $st['source'] ?: '—' ); ?></td></tr>
+						<tr><td><?php echo __( 'Veri tarihi' ); ?></td><td class="n"><?php echo $st['built'] ? $e( gmdate( 'Y-m-d', $st['built'] ) ) : '—'; ?></td></tr>
+						<tr><td><?php echo __( 'İndirildi' ); ?></td><td class="n"><?php echo $e( self::ago( $st['at'] ) ); ?></td></tr>
+					</table>
+				<?php else : ?>
+					<p><span class="pill warn"><?php echo __( 'Yok' ); ?></span> <span class="small"><?php echo __( 'İndirin ya da .mmdb dosyası yükleyin.' ); ?></span></p>
+				<?php endif; ?>
+				<?php if ( '' !== $st['error'] ) : ?>
+					<p class="small"><span class="pill err"><?php echo __( 'Son deneme başarısız' ); ?></span> <span class="muted"><?php echo $e( $st['error'] ); ?></span></p>
+				<?php endif; ?>
+				<div class="res-line"><span><?php echo __( 'Sizin isteğiniz' ); ?></span><b><?php echo '' !== $me['cc'] ? '<b class="cc">' . $e( $me['cc'] ) . '</b>' . $e( self::country_name( $me['cc'] ) ) . ' <span class="muted small">(' . $e( 'cf' === $me['src'] ? 'Cloudflare' : __( 'veritabanı' ) ) . ')</span>' : '<span class="muted">' . $e( __( 'Bilinmiyor' ) ) . '</span>'; ?></b></div>
+				<div class="row" style="margin-top:8px">
+					<form method="post"><?php echo $this->hidden( 'geo_update' ); ?><button class="btn sm"><?php echo $st['ok'] ? __( 'Şimdi güncelle' ) : __( 'Veritabanını indir' ); ?></button></form>
+					<?php if ( $st['ok'] ) : ?>
+					<form method="post"<?php echo $confirm( __( 'Ülke veritabanı silinsin mi?' ) ); ?>><?php echo $this->hidden( 'geo_delete' ); ?><button class="btn sec sm"><?php echo __( 'Sil' ); ?></button></form>
+					<?php endif; ?>
+				</div>
+				<details style="margin-top:10px"><summary class="small"><?php echo __( 'Dosya yükle ya da IP dene' ); ?></summary>
+					<form method="post" enctype="multipart/form-data" class="row" style="margin-top:8px">
+						<?php echo $this->hidden( 'geo_upload' ); ?>
+						<input type="file" name="mmdb" accept=".mmdb,.gz" required style="flex:1;min-width:180px">
+						<button class="btn sec sm"><?php echo __( 'Yükle' ); ?></button>
+					</form>
+					<p class="small muted"><?php echo __( 'DB-IP "IP to Country Lite" (.mmdb ya da .mmdb.gz) ya da MaxMind GeoLite2-Country.mmdb.' ); ?></p>
+					<form method="post" class="row">
+						<?php echo $this->hidden( 'geo_lookup' ); ?>
+						<input type="text" name="ip" placeholder="8.8.8.8" value="<?php echo $e( $args['geo_lookup'][0] ?? '' ); ?>" style="flex:1;min-width:140px" autocomplete="off">
+						<button class="btn sec sm"><?php echo __( 'Ülkesini bul' ); ?></button>
+					</form>
+					<?php if ( isset( $args['geo_lookup'] ) ) : ?>
+						<?php $lc = $args['geo_lookup'][1]; ?>
+						<p class="small"><?php echo null === $lc ? $e( __( 'Geçerli bir IP adresi girin.' ) ) : ( '' !== $lc ? '<b class="cc">' . $e( $lc ) . '</b>' . $e( self::country_name( $lc ) ) : $e( __( 'Bulunamadı' ) ) ); ?></p>
+					<?php endif; ?>
+				</details>
+				<p class="small muted"><?php echo __( 'IP harici bir servise gönderilmez; arama bu sunucuda yapılır. Veritabanı ayda bir kendiliğinden yenilenir.' ); ?> <a href="https://db-ip.com" rel="noopener" target="_blank">IP Geolocation by DB-IP</a> (CC BY 4.0)</p>
+			</div>
+		</div>
+
+		<div class="card" id="geo-rule">
+			<h2><?php echo __( 'Ülke erişimi' ); ?></h2>
+			<form method="post">
+				<?php echo $this->hidden( 'save_geo' ); ?>
+				<div class="seg-radio">
+					<?php foreach ( array( 'off' => __( 'Kapalı' ), 'deny' => __( 'Seçilen ülkeleri engelle' ), 'allow' => __( 'Yalnız seçilen ülkelere izin ver' ) ) as $k => $l ) : ?>
+						<label><input type="radio" name="geo_mode" value="<?php echo $e( $k ); ?>" <?php echo $mode === $k ? 'checked' : ''; ?>> <?php echo $e( $l ); ?></label>
+					<?php endforeach; ?>
+				</div>
+				<label><?php echo __( 'Ülkeler' ); ?></label>
+				<div class="chips cc-pick">
+					<input type="hidden" name="geo_countries" value="<?php echo $e( implode( ',', $list ) ); ?>">
+					<?php foreach ( $list as $cc ) : ?>
+						<span class="chip" data-v="<?php echo $e( $cc ); ?>"><b class="cc"><?php echo $e( $cc ); ?></b><?php echo $e( self::country_name( $cc ) ); ?><button type="button" aria-label="<?php echo $e( _f( '%s kaldır', $cc ) ); ?>">×</button></span>
+					<?php endforeach; ?>
+					<input type="text" class="chip-in" list="cc-list" autocomplete="off" placeholder="<?php echo $e( __( 'Ülke ekle… (ad ya da TR gibi kod)' ) ); ?>">
+				</div>
+				<datalist id="cc-list">
+					<?php
+					$opts = array();
+					foreach ( self::ISO as $cc ) {
+						$opts[ $cc ] = self::country_name( $cc );
+					}
+					asort( $opts );
+					foreach ( $opts as $cc => $name ) {
+						echo '<option value="' . $e( $cc . ' · ' . $name ) . '">';
+					}
+					?>
+				</datalist>
+				<label class="check"><input type="checkbox" name="geo_keyed_exempt" value="1" <?php echo ! empty( $this->config['geo_keyed_exempt'] ) ? 'checked' : ''; ?>> <?php echo __( 'Aktif anahtarlı siteler muaf (yalnız anahtarsız istekler kurala tabi)' ); ?></label>
+				<label class="check"><input type="checkbox" name="geo_auto" value="1" <?php echo ! empty( $this->config['geo_auto'] ) ? 'checked' : ''; ?>> <?php echo __( 'Ülke veritabanını ayda bir kendiliğinden güncelle' ); ?></label>
+				<p class="small muted"><?php echo __( 'Engellenen istek 403 (region_blocked) alır ve yalnız ülke koduyla sayılır. Ülkesi bulunamayan istek "engelle" kipinde geçer, "yalnız izin ver" kipinde engellenir. Kural güncelleme kontrolü, paket ve uygulama indirmelerine uygulanır; panel etkilenmez.' ); ?></p>
+				<?php if ( 'allow' === $mode && '' !== $me['cc'] && ! in_array( $me['cc'], $list, true ) ) : ?>
+					<p class="small"><span class="pill warn"><?php echo $e( _f( '%s listede yok', $me['cc'] ) ); ?></span> <?php echo __( 'Kendi ülkenizdeki anahtarsız siteler de engellenir.' ); ?></p>
+				<?php endif; ?>
+				<p><button class="btn"><?php echo __( 'Kaydet' ); ?></button></p>
+			</form>
+		</div>
+		<?php
 	}
 
 	private static function meter( float $used, float $total, string $tone = '' ): string {

@@ -102,6 +102,18 @@ function load_config( string $root ): array {
 			$config['sites'][ $h ] = $site;
 		}
 	}
+	// Güvenlik anahtarları ve ülke kuralı yalnız panelden (data/settings.json).
+	foreach ( array( 'lockdown', 'public_off', 'geo_keyed_exempt', 'geo_auto' ) as $k ) {
+		if ( isset( $panel[ $k ] ) ) {
+			$config[ $k ] = (bool) $panel[ $k ];
+		}
+	}
+	if ( isset( $panel['geo_mode'] ) && in_array( $panel['geo_mode'], array( 'off', 'deny', 'allow' ), true ) ) {
+		$config['geo_mode'] = $panel['geo_mode'];
+	}
+	if ( isset( $panel['geo_countries'] ) && is_array( $panel['geo_countries'] ) ) {
+		$config['geo_countries'] = $panel['geo_countries'];
+	}
 	// Panelde parola belirlendiyse config.php'deki düz parola artık kullanılmaz.
 	if ( ! empty( $panel['admin_password_hash'] ) ) {
 		$config['admin_password'] = '';

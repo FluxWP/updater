@@ -9,10 +9,19 @@
 
 namespace FLXUpdate;
 
-const VERSION = '1.9.7';
+const VERSION = '1.10.0';
 const DAY_SECONDS = 86400;
 
-class HttpError extends \Exception {}
+class HttpError extends \Exception {
+
+	/** @var string Makinenin okuyacağı neden (ör. region_blocked). */
+	public $reason = '';
+
+	public function __construct( string $message, int $code = 500, string $reason = '' ) {
+		parent::__construct( $message, $code );
+		$this->reason = $reason;
+	}
+}
 
 final class Server {
 
@@ -40,6 +49,12 @@ final class Server {
 			'sites'               => array(),
 			'data_dir'            => __DIR__ . '/../data',
 			'github_api'          => 'https://api.github.com',
+			'lockdown'            => false,
+			'public_off'          => false,
+			'geo_mode'            => 'off',
+			'geo_countries'       => array(),
+			'geo_keyed_exempt'    => true,
+			'geo_auto'            => true,
 		);
 		$this->data_dir = rtrim( $this->config['data_dir'], '/' );
 	}
@@ -58,10 +73,21 @@ final class Server {
 						'service'    => 'flx-update-server',
 						'version'    => VERSION,
 						'configured' => ( '' !== (string) $this->config['github_token'] && ! empty( $this->config['sites'] ) ) || (bool) $this->public_repos(),
-						'public'     => (bool) $this->public_repos() || (bool) $this->public_packages(),
+						'public'     => $this->public_enabled(),
+						'paused'     => ! empty( $this->config['lockdown'] ),
 					)
 				);
 				return;
+			}
+			if ( 0 === strpos( $path, '/v1/' ) && '/v1/webhook' !== $path ) {
+				$this->guard_lockdown();
+				if ( 0 === strpos( $path, '/v1/app/' ) || 0 === strpos( $path, '/v1/fluxapp/' ) ) {
+					// Uygulama uçları anahtarsızdır: anahtarsız dağıtım ve ülke kuralı aynen uygulanır.
+					if ( ! empty( $this->config['public_off'] ) ) {
+						$this->deny( 'Keyless access is disabled on this server', 401, 'public_disabled' );
+					}
+					$this->guard_country( array( 'anon' => true ) );
+				}
 			}
 			if ( '/v1/check' === $path ) {
 				$this->route_check( $method );
@@ -109,7 +135,14 @@ final class Server {
 			}
 			throw new HttpError( 'Not found', 404 );
 		} catch ( HttpError $e ) {
-			$this->json( array( 'ok' => false, 'error' => $e->getMessage() ), $e->getCode() ?: 500 );
+			$out = array( 'ok' => false, 'error' => $e->getMessage() );
+			if ( '' !== $e->reason ) {
+				$out['code'] = $e->reason;
+			}
+			if ( 503 === $e->getCode() && ! headers_sent() ) {
+				header( 'Retry-After: 3600' );
+			}
+			$this->json( $out, $e->getCode() ?: 500 );
 		} catch ( \Throwable $e ) {
 			error_log( '[flx-update] ' . $e->getMessage() );
 			$this->json( array( 'ok' => false, 'error' => 'Server error' ), 500 );
@@ -134,14 +167,19 @@ final class Server {
 		try {
 			$site = $this->auth_site();
 		} catch ( HttpError $e ) {
-			if ( '' === $assigned ) {
+			if ( '' === $assigned || 'region_blocked' === $e->reason ) {
+				if ( 401 === $e->getCode() && 'public_disabled' === $e->reason ) {
+					$this->stats()->record_blocked( $this->request_country() );
+				}
 				throw $e;
 			}
 			// Anahtarsız erişim kapalı olsa da teslim yapılır; site anahtarla yeniden sorar.
-			$this->stats()->record_check( array( 'anon' => true ), $body );
+			$this->guard_country( array( 'anon' => true ) );
+			$this->stats()->record_check( array( 'anon' => true ), $body, $this->request_country() );
 			$this->json( array( 'ok' => true, 'site' => '', 'public' => true, 'packages' => array(), 'assigned_key' => $assigned ) );
 			return;
 		}
+		$this->guard_country( $site );
 		$this->maybe_prune();
 
 		$catalog  = $this->catalog( $site['channel'], $site );
@@ -172,7 +210,7 @@ final class Server {
 				$this->claimed( $site['hash'] );
 			}
 		}
-		$this->stats()->record_check( $site, $body );
+		$this->stats()->record_check( $site, $body, $this->request_country() );
 		$res = array( 'ok' => true, 'site' => $site['name'], 'public' => ! empty( $site['anon'] ), 'packages' => $out );
 		if ( ! empty( $site['disabled'] ) ) {
 			$res['key_disabled'] = true;
@@ -181,6 +219,7 @@ final class Server {
 			$res['assigned_key'] = $assigned;
 		}
 		$this->json( $res );
+		$this->maybe_update_geo();
 	}
 
 	/* ------------------------------------------------------------------ */
@@ -188,7 +227,15 @@ final class Server {
 	/* ------------------------------------------------------------------ */
 
 	private function route_download( string $slug, string $version ): void {
-		$site    = $this->auth_site();
+		try {
+			$site = $this->auth_site();
+		} catch ( HttpError $e ) {
+			if ( 'public_disabled' === $e->reason ) {
+				$this->stats()->record_blocked( $this->request_country() );
+			}
+			throw $e;
+		}
+		$this->guard_country( $site );
 		$release = null;
 		$denied  = false;
 		// latest.zip: sitenin görebildiği son kararlı sürüm (web sitesindeki "İndir" butonu için).
@@ -243,7 +290,7 @@ final class Server {
 		$this->prune_zips( $slug );
 
 		$this->log( 'download', ( empty( $site['anon'] ) ? $site['name'] : 'public' ) . ' ' . $slug . ' ' . $version );
-		$this->stats()->record_download( $site, $slug, (int) filesize( $file ) );
+		$this->stats()->record_download( $site, $slug, (int) filesize( $file ), $this->request_country() );
 
 		header( 'Content-Type: application/zip' );
 		header( 'Content-Length: ' . filesize( $file ) );
@@ -926,6 +973,108 @@ final class Server {
 	}
 
 	/* ------------------------------------------------------------------ */
+	/* Güvenlik: acil durdurma, anahtarsız dağıtım, ülke kuralı             */
+	/* ------------------------------------------------------------------ */
+
+	/** @var Geo|null */
+	private $geo = null;
+
+	public function geo(): Geo {
+		if ( ! $this->geo ) {
+			$this->geo = new Geo( $this->data_dir );
+		}
+		return $this->geo;
+	}
+
+	/** İsteğin ülke kodu ('' bilinmiyor). IP saklanmaz. */
+	public function request_country(): string {
+		return $this->geo()->request_country()['cc'];
+	}
+
+	/** Anahtarsız dağıtım açık mı: public depo/paket var ve panelden kapatılmamış. */
+	public function public_enabled(): bool {
+		return empty( $this->config['public_off'] ) && ( (bool) $this->public_repos() || (bool) $this->public_packages() );
+	}
+
+	/** Seçili ülkeler (büyük harf ISO kodları). */
+	public function geo_countries(): array {
+		$out = array();
+		foreach ( (array) $this->config['geo_countries'] as $cc ) {
+			$cc = strtoupper( trim( (string) $cc ) );
+			if ( preg_match( '/^[A-Z]{2}$/', $cc ) ) {
+				$out[ $cc ] = $cc;
+			}
+		}
+		return array_values( $out );
+	}
+
+	/**
+	 * Ülke kuralı bu ülkeye izin veriyor mu? deny: listedekiler kapalı, bilinmeyen açık.
+	 * allow: yalnız listedekiler açık, bilinmeyen kapalı.
+	 */
+	public function country_allowed( string $cc ): bool {
+		$mode = (string) $this->config['geo_mode'];
+		if ( 'deny' === $mode ) {
+			return '' === $cc || ! in_array( $cc, $this->geo_countries(), true );
+		}
+		if ( 'allow' === $mode ) {
+			return '' !== $cc && in_array( $cc, $this->geo_countries(), true );
+		}
+		return true;
+	}
+
+	private function guard_lockdown(): void {
+		if ( ! empty( $this->config['lockdown'] ) ) {
+			throw new HttpError( 'Update distribution is paused on this server', 503, 'paused' );
+		}
+	}
+
+	/** Ülke kuralı. Anahtarlı (aktif) siteler, ayar açıksa muaftır. */
+	private function guard_country( array $site ): void {
+		if ( 'off' === (string) $this->config['geo_mode'] || '' === (string) $this->config['geo_mode'] ) {
+			return;
+		}
+		if ( empty( $site['anon'] ) && ! empty( $this->config['geo_keyed_exempt'] ) ) {
+			return;
+		}
+		$cc = $this->request_country();
+		if ( $this->country_allowed( $cc ) ) {
+			return;
+		}
+		$this->deny( 'Not available in your region', 403, 'region_blocked' );
+	}
+
+	/** Engellenen isteği sayar (yalnız ülke kodu) ve geri çevirir. */
+	private function deny( string $msg, int $code, string $reason ): void {
+		$this->stats()->record_blocked( $this->request_country() );
+		throw new HttpError( $msg, $code, $reason );
+	}
+
+	/**
+	 * Ülke veritabanı eskiyse yanıt gönderildikten sonra yeniler (istemciyi bekletmez).
+	 * Yanıtı erken kapatma imkânı yoksa (fastcgi/litespeed) panelden yenilenir.
+	 */
+	private function maybe_update_geo(): void {
+		if ( empty( $this->config['geo_auto'] ) || ! $this->geo()->needs_update() ) {
+			return;
+		}
+		if ( function_exists( 'fastcgi_finish_request' ) ) {
+			fastcgi_finish_request();
+		} elseif ( function_exists( 'litespeed_finish_request' ) ) {
+			litespeed_finish_request();
+		} else {
+			return;
+		}
+		@set_time_limit( 120 );
+		try {
+			$src = $this->geo()->update();
+			$this->log( 'geo-update', $src );
+		} catch ( \Throwable $e ) {
+			$this->log( 'geo-update-failed', $e->getMessage() );
+		}
+	}
+
+	/* ------------------------------------------------------------------ */
 	/* Site doğrulama                                                      */
 	/* ------------------------------------------------------------------ */
 
@@ -945,6 +1094,9 @@ final class Server {
 	private function auth_site(): array {
 		$key = $this->request_key();
 		if ( '' === $key ) {
+			if ( ! empty( $this->config['public_off'] ) ) {
+				throw new HttpError( 'Keyless access is disabled on this server', 401, 'public_disabled' );
+			}
 			if ( ! $this->public_repos() && ! $this->public_packages() ) {
 				throw new HttpError( 'Missing site key', 401 );
 			}
@@ -973,6 +1125,10 @@ final class Server {
 				);
 				// Pasif anahtar: site tanınır ama yalnız public paketleri görür.
 				if ( isset( $conf['active'] ) && ! $conf['active'] ) {
+					if ( ! empty( $this->config['public_off'] ) ) {
+						// Pasif anahtar anahtarsız sayılır; anahtarsız dağıtım kapalıyken hiçbir şey almaz.
+						throw new HttpError( 'Site key disabled', 403, 'key_disabled' );
+					}
 					$site['anon']     = true;
 					$site['disabled'] = true;
 					$site['packages'] = array();
