@@ -86,12 +86,12 @@ function load_config( string $root ): array {
 		}
 	}
 	// Depo alanları panelde boşaltılabilir: "-" kayıtlı (ör. public güncelleme kapalı).
-	foreach ( array( 'repo', 'public_repos', 'app_repo', 'public_packages' ) as $k ) {
+	foreach ( array( 'repo', 'public_repos', 'app_repo', 'fluxapp_repo', 'public_packages' ) as $k ) {
 		if ( isset( $panel[ $k ] ) && '' !== $panel[ $k ] ) {
 			$config[ $k ] = '-' === $panel[ $k ] ? '' : $panel[ $k ];
 		}
 	}
-	foreach ( array( 'github_token', 'fluxapp_repo', 'webhook_secret', 'admin_user', 'admin_password_hash', 'secret' ) as $k ) {
+	foreach ( array( 'github_token', 'webhook_secret', 'admin_user', 'admin_password_hash', 'secret' ) as $k ) {
 		if ( isset( $panel[ $k ] ) && '' !== $panel[ $k ] ) {
 			$config[ $k ] = $panel[ $k ];
 		}

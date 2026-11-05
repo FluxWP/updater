@@ -151,6 +151,9 @@ final class Panel {
 					'public_repos' => $this->clean_repos( (string) ( $_POST['public_repos'] ?? '' ), 'public_repos', true ),
 					'app_repo'     => $this->clean_repos( (string) ( $_POST['app_repo'] ?? '' ), 'app_repo', true, 1 ),
 				);
+				if ( isset( $_POST['fluxapp_repo'] ) ) {
+					$changes['fluxapp_repo'] = $this->clean_repos( (string) $_POST['fluxapp_repo'], 'fluxapp_repo', true, 1 );
+				}
 				if ( isset( $_POST['public_packages_sent'] ) ) {
 					$pp = array();
 					foreach ( (array) ( $_POST['public_packages'] ?? array() ) as $slug ) {
@@ -1054,6 +1057,8 @@ var L = <?php echo json_encode( array(
 					<?php endif; ?>
 					<label><?php echo __( 'Uygulama deposu' ); ?> <span class="muted small"><?php echo __( '(masaüstü/mobil uygulama, tag v&lt;sürüm&gt;)' ); ?></span></label>
 					<?php $this->repo_chips( 'app_repo', (string) ( $this->config['app_repo'] ?? '' ), 'app', true ); ?>
+					<label><?php echo __( 'FluxWP masaüstü deposu' ); ?> <span class="muted small"><?php echo __( '(fluxapp-v&lt;sürüm&gt; yayınları; boşsa ilk private depo)' ); ?></span></label>
+					<?php $this->repo_chips( 'fluxapp_repo', (string) ( $this->config['fluxapp_repo'] ?? '' ), 'app', true ); ?>
 					<p class="small muted"><?php echo __( 'Liste GitHub\'dan gelir: token\'ın erişebildiği depolar ve bu sahiplerin public depoları. Listede olmayanı <code>owner/repo</code> yazıp Enter ile ekleyin.' ); ?></p>
 					<label>Token <span class="muted small"><?php echo __( '(fine-grained, private depolar + uygulama deposu, Contents: Read-only)' ); ?></span></label>
 					<input type="password" name="github_token" placeholder="<?php echo $token ? $e( _f( 'Kayıtlı: …%s (değiştirmek için yenisini yazın)', substr( $token, -4 ) ) ) : 'github_pat_…'; ?>">
