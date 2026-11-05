@@ -160,3 +160,7 @@ FluxWP Update Server, **Ahmet Yılmaz** ([@sharkpaw](https://github.com/sharkpaw
 ### Katkıda bulunanlar
 
 Issue ve pull request'ler açıktır. Katkıda bulunanlar burada listelenecek.
+
+### FluxWP masaüstü kaynağı (1.10.1)
+
+/admin › GitHub içindeki **FluxWP masaüstü deposu**, `fluxapp-v<sürüm>` yayınlarını okur. Resmî uygulama için `FluxWP/FluxWP` seçin. Bu alan, `v<sürüm>` etiketli genel uygulama deposundan ve WordPress paket kaynaklarından ayrıdır. Boş bırakılınca eski ilk-private-depo davranışı korunur.
