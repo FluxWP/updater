@@ -87,6 +87,10 @@ IP addresses are not written to the statistics. `data/access.log` keeps the IP o
 - **Mobile/desktop app:** releases tagged `v<version>` in the app repository (panel › GitHub › App repository). File names decide the platform: `*windows*`, `*macos*`, `*.apk`, `*ios*`.
 - **FluxWP desktop:** `fluxapp-v<version>` releases in the package repository (or `FLX_UPDATE_FLUXAPP_REPO`). File names carry the brand: `fluxapp-<brand>-<version>-macos-universal.dmg`, `.app.tar.gz`, `.app.tar.gz.sig` and `fluxapp-<brand>-<version>-windows-x64-setup.exe`, `-setup.exe.sig`, `.msi` (uploaded by `fluxapp-desktop.yml` in FluxWP/FluxWP). The app asks the `tauri` endpoint and installs signed bundles in the background.
 
+### Site address and country (1.10.1)
+
+Every update check records the site address (scheme + host, plus subdirectory; no query) and the country code, regardless of the usage-data opt-in, like a strictly necessary cookie. The address comes from the request body or WordPress's User-Agent. IPs are never stored. WordPress/PHP versions, time zone and locale still need the opt-in.
+
 ### Countries and security (1.10.0)
 
 - **Country lookup:** every check and download is mapped to a country; only the country code and a counter are stored, the IP is never written anywhere or sent to an outside service. Source: `CF-IPCountry` when the request really comes from a Cloudflare IP (the header is ignored otherwise, so it cannot be spoofed), else the local database `data/geo/country.mmdb` (DB-IP IP to Country Lite, CC BY 4.0). The panel downloads it and refreshes it monthly (db-ip.com, falling back to the jsDelivr/npm copy); a MaxMind GeoLite2-Country.mmdb can be uploaded too.

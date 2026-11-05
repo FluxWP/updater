@@ -243,7 +243,7 @@ return array(
 	'Ülkesi bilinmeyen istekler engelleniyor.' => 'Requests with an unknown country are blocked.',
 	'Kural yalnız Cloudflare arkasındaki isteklerde çalışır.' => 'The rule only works for requests coming through Cloudflare.',
 	'İstekten, IP saklanmadan' => 'From the request, IP not stored',
-	'IP saklanmaz. Ülke, istek anında IP\'den bulunur (Cloudflare arkasındaysa CF-IPCountry, değilse sunucudaki ülke veritabanı) ve yalnız ülke kodu tutulur. Bulunamazsa ve site izin verdiyse WordPress saat diliminden.' => 'IPs are not stored. The country is looked up from the IP while the request is handled (Cloudflare\'s CF-IPCountry behind Cloudflare, otherwise the country database on this server) and only the country code is kept. If that fails and the site opted in, the WordPress time zone is used.',
+	'Zorunlu kayıt yalnız site adresi ve ülkedir. IP saklanmaz: ülke, istek anında IP\'den bulunur (Cloudflare arkasındaysa CF-IPCountry, değilse sunucudaki ülke veritabanı) ve yalnız ülke kodu tutulur. Bulunamazsa ve site izin verdiyse WordPress saat diliminden. WordPress/PHP sürümü yalnız kullanım verisi izniyle.' => 'The only mandatory record is the site address and country. IPs are not stored: the country is looked up from the IP while the request is handled (Cloudflare\'s CF-IPCountry behind Cloudflare, otherwise the country database on this server) and only the country code is kept. If that fails and the site opted in, the WordPress time zone is used. WordPress/PHP versions only with the usage-data opt-in.',
 	'Ülke trafiği' => 'Traffic by country',
 	'%1$s ülke · %2$s engellenen istek' => '%1$s countries · %2$s blocked requests',
 	'Ülke veritabanı yok' => 'No country database',

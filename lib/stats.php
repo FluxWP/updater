@@ -9,7 +9,8 @@
  *   days    => { "Y-m-d": { c: kontrol, a: anahtarsız kontrol, d: indirme, b: bayt, s: {site_id: 1}, p: {slug: indirme},
  *                g: { CC: { c: kontrol, d: indirme, b: bayt, x: engellenen, p: {slug: indirme} } } } }
  *   clients => { site_id: { url, name, key, off, ih, cc, wp, php, upd, use, pk: {slug: sürüm}, first, last, n } }
- *   use: site kullanım verisi göndermeye izin verdi mi (vermediyse url, wp, php boş; cc yalnız istekten).
+ *   use: site kullanım verisi göndermeye izin verdi mi (vermediyse wp, php boş). url ve cc zorunlu kayıttır,
+ *   izinden bağımsız tutulur (zorunlu çerez gibi): url yalnız şema + host (+ alt dizin), sorgu yok.
  *   Ülkesi bilinmeyen istek g altında "ZZ" ile sayılır.
  *   ih: Flux Updater 1.7.0+ kurulum kimliğinin sha256 özeti (panelden anahtar vermek için).
  */
@@ -49,6 +50,30 @@ final class Stats {
 	}
 
 	/**
+	 * Site adresini zorunlu kayıt için sadeleştirir: şema + host (+ port, alt dizin). Kullanıcı bilgisi,
+	 * sorgu ve parça atılır. Gövdede adres yoksa WordPress'in User-Agent'ından ("WordPress/6.8; https://ornek.com") alınır.
+	 */
+	public static function site_url( string $site, string $ua = '' ): string {
+		if ( '' === trim( $site ) && preg_match( '#;\s*(https?://\S+)#i', $ua, $m ) ) {
+			$site = $m[1];
+		}
+		$p = parse_url( trim( $site ) );
+		if ( ! is_array( $p ) || empty( $p['host'] ) || ! preg_match( '#^https?$#i', (string) ( $p['scheme'] ?? '' ) ) ) {
+			return '';
+		}
+		$host = strtolower( (string) $p['host'] );
+		if ( ! preg_match( '/^[a-z0-9.\-\[\]:]{1,190}$/', $host ) ) {
+			return '';
+		}
+		$url = strtolower( (string) $p['scheme'] ) . '://' . $host . ( isset( $p['port'] ) ? ':' . (int) $p['port'] : '' );
+		$path = rtrim( (string) ( $p['path'] ?? '' ), '/' );
+		if ( '' !== $path && preg_match( '#^(/[A-Za-z0-9._~%\-]+){1,4}$#', $path ) ) {
+			$url .= $path;
+		}
+		return substr( $url, 0, 200 );
+	}
+
+	/**
 	 * Site kullanım verisi göndermeye izin verdi mi? FluxWP Panel 1.0.8+ "usage" alanını yollar;
 	 * alan yoksa eski istemcidir (adres ve sürümleri her zaman gönderir).
 	 */
@@ -64,13 +89,10 @@ final class Stats {
 	public function record_check( array $site, array $body, string $geo = '' ): void {
 		$usage = self::usage_allowed( $body );
 		if ( ! $usage ) {
-			// İzin yok: adres, WordPress/PHP sürümü, saat dilimi ve dil saklanmaz.
-			unset( $body['site'], $body['wp'], $body['php'], $body['tz'], $body['locale'] );
+			// İzin yok: WordPress/PHP sürümü, saat dilimi ve dil saklanmaz. Adres zorunlu kayıttır.
+			unset( $body['wp'], $body['php'], $body['tz'], $body['locale'] );
 		}
-		$url = substr( (string) ( $body['site'] ?? '' ), 0, 200 );
-		if ( '' !== $url && ! preg_match( '#^https?://#i', $url ) ) {
-			$url = '';
-		}
+		$url = self::site_url( (string) ( $body['site'] ?? '' ) );
 		$anon = ! empty( $site['anon'] );
 		$ih   = Server::install_hash( (string) ( $body['install'] ?? '' ) );
 		$id   = self::client_id( $site, $url, $ih );
@@ -98,7 +120,7 @@ final class Stats {
 				$all['days'][ $day ] = $d;
 
 				$c        = $all['clients'][ $id ] ?? array( 'first' => time(), 'n' => 0 );
-				$c['url'] = $usage && '' === $url ? (string) ( $c['url'] ?? '' ) : $url;
+				$c['url'] = '' === $url ? (string) ( $c['url'] ?? '' ) : $url;
 				$c['use'] = $usage;
 				$c['name'] = (string) ( $site['name'] ?? '' );
 				$c['key']  = '' !== (string) ( $site['hash'] ?? '' );

@@ -1478,7 +1478,7 @@ var L = <?php echo json_encode( array(
 				<p><button type="button" class="btn sec sm" onclick="document.querySelectorAll('#clients tr.more').forEach(function(r){r.hidden=false});this.remove()"><?php echo $e( _f( 'Tümünü göster (%s)', self::n( count( $S['clients'] ) ) ) ); ?></button></p>
 			<?php endif; ?>
 			<?php endif; ?>
-			<p class="small muted"><?php echo __( 'IP saklanmaz. Ülke, istek anında IP\'den bulunur (Cloudflare arkasındaysa CF-IPCountry, değilse sunucudaki ülke veritabanı) ve yalnız ülke kodu tutulur. Bulunamazsa ve site izin verdiyse WordPress saat diliminden.' ); ?></p>
+			<p class="small muted"><?php echo __( 'Zorunlu kayıt yalnız site adresi ve ülkedir. IP saklanmaz: ülke, istek anında IP\'den bulunur (Cloudflare arkasındaysa CF-IPCountry, değilse sunucudaki ülke veritabanı) ve yalnız ülke kodu tutulur. Bulunamazsa ve site izin verdiyse WordPress saat diliminden. WordPress/PHP sürümü yalnız kullanım verisi izniyle.' ); ?></p>
 		</div>
 		<?php
 		$this->view_geo_traffic( $S, $catalog );
