@@ -87,7 +87,7 @@ FluxWP Panel 1.0.8+ site adresini, WordPress ve PHP sürümünü, saat dilimini 
 
 IP adresi istatistiklere yazılmaz. `data/access.log` IP'yi yalnız hatalı anahtar denemelerinde (güvenlik) tutar, 90 günden eski satırları siler. Günlük sayaçlar 120 gün, site kayıtları son denetimden sonra 180 gün saklanır.
 
-### Site adresi ve ülke (1.10.1)
+### Site adresi ve ülke (1.10.2)
 
 Her güncelleme denetimi, kullanım verisi izninden bağımsız olarak site adresini (şema + host, varsa alt dizin; sorgu yok) ve ülke kodunu kaydeder; zorunlu çerez gibi. Adres istek gövdesinden ya da WordPress User-Agent'ından alınır. IP hiç saklanmaz. WordPress/PHP sürümü, saat dilimi ve dil yine izin ister.
 
@@ -165,6 +165,6 @@ FluxWP Update Server, **Ahmet Yılmaz** ([@sharkpaw](https://github.com/sharkpaw
 
 Issue ve pull request'ler açıktır. Katkıda bulunanlar burada listelenecek.
 
-### FluxWP masaüstü kaynağı (1.10.1)
+### FluxWP masaüstü kaynağı (1.10.2)
 
 /admin › GitHub içindeki **FluxWP masaüstü deposu**, `fluxapp-v<sürüm>` yayınlarını okur. Resmî uygulama için `FluxWP/FluxWP` seçin. Bu alan, `v<sürüm>` etiketli genel uygulama deposundan ve WordPress paket kaynaklarından ayrıdır. Boş bırakılınca eski ilk-private-depo davranışı korunur.

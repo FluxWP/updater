@@ -89,7 +89,7 @@ Choose **FluxWP desktop repository** under /admin › GitHub for `fluxapp-v<vers
 - **Mobile/desktop app:** releases tagged `v<version>` in the app repository (panel › GitHub › App repository). File names decide the platform: `*windows*`, `*macos*`, `*.apk`, `*ios*`.
 - **FluxWP desktop:** `fluxapp-v<version>` releases in the package repository (or `FLX_UPDATE_FLUXAPP_REPO`). File names carry the brand: `fluxapp-<brand>-<version>-macos-universal.dmg`, `.app.tar.gz`, `.app.tar.gz.sig` and `fluxapp-<brand>-<version>-windows-x64-setup.exe`, `-setup.exe.sig`, `.msi` (uploaded by `fluxapp-desktop.yml` in FluxWP/FluxWP). The app asks the `tauri` endpoint and installs signed bundles in the background.
 
-### Site address and country (1.10.1)
+### Site address and country (1.10.2)
 
 Every update check records the site address (scheme + host, plus subdirectory; no query) and the country code, regardless of the usage-data opt-in, like a strictly necessary cookie. The address comes from the request body or WordPress's User-Agent. IPs are never stored. WordPress/PHP versions, time zone and locale still need the opt-in.
 
