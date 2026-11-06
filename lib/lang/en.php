@@ -64,6 +64,8 @@ return array(
 	'Public depolar' => 'Public repositories',
 	'(paketleri herkese anahtarsız; boşsa public güncelleme kapalı)' => '(packages for everyone without a key; empty disables public updates)',
 	'Uygulama deposu' => 'App repository',
+	'FluxWP masaüstü deposu' => 'FluxWP desktop repository',
+	'(fluxapp-v&lt;sürüm&gt; yayınları; boşsa ilk private depo)' => '(fluxapp-v&lt;version&gt; releases; first private repository when empty)',
 	'(masaüstü/mobil uygulama, tag v&lt;sürüm&gt;)' => '(desktop/mobile app, tag v&lt;version&gt;)',
 	'Liste GitHub\'dan gelir: token\'ın erişebildiği depolar ve bu sahiplerin public depoları. Listede olmayanı <code>owner/repo</code> yazıp Enter ile ekleyin.' => 'The list comes from GitHub: repositories the token can access and the public repositories of these owners. For anything not listed, type <code>owner/repo</code> and press Enter.',
 	'(fine-grained, private depolar + uygulama deposu, Contents: Read-only)' => '(fine-grained, private repositories + app repository, Contents: Read-only)',
