@@ -87,6 +87,10 @@ FluxWP Panel 1.0.8+ site adresini, WordPress ve PHP sürümünü, saat dilimini 
 
 IP adresi istatistiklere yazılmaz. `data/access.log` IP'yi yalnız hatalı anahtar denemelerinde (güvenlik) tutar, 90 günden eski satırları siler. Günlük sayaçlar 120 gün, site kayıtları son denetimden sonra 180 gün saklanır.
 
+### Site adresi ve ülke (1.10.2)
+
+Her güncelleme denetimi, kullanım verisi izninden bağımsız olarak site adresini (şema + host, varsa alt dizin; sorgu yok) ve ülke kodunu kaydeder; zorunlu çerez gibi. Adres istek gövdesinden ya da WordPress User-Agent'ından alınır. IP hiç saklanmaz. WordPress/PHP sürümü, saat dilimi ve dil yine izin ister.
+
 ### Ülke ve güvenlik (1.10.0)
 
 - **Ülke tespiti:** her kontrol ve indirmede isteğin ülkesi bulunur, yalnız ülke kodu ve sayaç saklanır; IP hiçbir yere yazılmaz ve harici servise gönderilmez. Kaynak: istek gerçekten Cloudflare IP'sinden geliyorsa `CF-IPCountry` (başka yerden gelen sahte başlık yok sayılır), değilse sunucudaki ülke veritabanı `data/geo/country.mmdb` (DB-IP IP to Country Lite, CC BY 4.0). Veritabanı panelden indirilir ve ayda bir kendiliğinden yenilenir (db-ip.com, olmazsa jsDelivr/npm kopyası); MaxMind GeoLite2-Country.mmdb de elle yüklenebilir.

@@ -9,7 +9,7 @@
 
 namespace FLXUpdate;
 
-const VERSION = '1.10.1';
+const VERSION = '1.10.2';
 const DAY_SECONDS = 86400;
 
 class HttpError extends \Exception {
@@ -162,6 +162,8 @@ final class Server {
 				$body = array();
 			}
 		}
+		// Site adresi zorunlu kayıttır (izinden bağımsız); gövdede yoksa User-Agent'tan, sadeleştirilmiş.
+		$body['site'] = Stats::site_url( (string) ( $body['site'] ?? '' ), (string) ( $_SERVER['HTTP_USER_AGENT'] ?? '' ) );
 		// Panelden "Anahtar ver" denen site: anahtar, kurulum kimliği eşleşen anahtarsız isteğe teslim edilir.
 		$assigned = '' === $this->request_key() ? $this->assigned_key( (string) ( $body['install'] ?? '' ) ) : '';
 		try {
@@ -1278,7 +1280,7 @@ final class Server {
 			function () use ( $file, $site, $body ) {
 				$all  = $this->read_json( $file );
 				if ( ! Stats::usage_allowed( $body ) ) {
-					unset( $body['site'], $body['wp'], $body['php'] );
+					unset( $body['wp'], $body['php'] );
 				}
 				$pkgs = array();
 				foreach ( (array) ( $body['packages'] ?? array() ) as $slug => $ver ) {
@@ -1288,7 +1290,7 @@ final class Server {
 				}
 				$all[ $site['hash'] ] = array(
 					'name'      => $site['name'],
-					'url'       => substr( (string) ( $body['site'] ?? '' ), 0, 200 ),
+					'url'       => (string) ( $body['site'] ?? '' ),
 					'wp'        => substr( (string) ( $body['wp'] ?? '' ), 0, 20 ),
 					'php'       => substr( (string) ( $body['php'] ?? '' ), 0, 20 ),
 					'packages'  => $pkgs,
