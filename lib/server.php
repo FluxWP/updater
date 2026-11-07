@@ -442,7 +442,10 @@ final class Server {
 		return substr( hash_hmac( 'sha256', $slug . '|' . $version, $this->media_secret() ), 0, 24 );
 	}
 
-	/** Bilinen medya durumu: "slug|sürüm|dosya" => true (var) / false (yok). */
+	/** Bulunamayan medya bir gün sonra yeniden aranır (depoya sonradan eklenmiş olabilir). */
+	const MEDIA_MISS_TTL = 86400;
+
+	/** Bilinen medya durumu: "slug|sürüm|dosya" => true (var) / bulunamadığı zaman (unix). */
 	private function media_index(): array {
 		return $this->read_json( $this->data_dir . '/media/index.json' );
 	}
@@ -461,7 +464,8 @@ final class Server {
 		}
 		$idx  = $this->media_index();
 		$has  = function ( string $file ) use ( $idx, $rel ): bool {
-			return false !== ( $idx[ $rel['slug'] . '|' . $rel['version'] . '|' . $file ] ?? null );
+			$v = $idx[ $rel['slug'] . '|' . $rel['version'] . '|' . $file ] ?? true;
+			return true === $v || ( is_int( $v ) && time() - $v > self::MEDIA_MISS_TTL );
 		};
 		$out = array( 'icons' => array(), 'shots' => array() );
 		foreach ( array( 'svg' => 'icon.svg', 'pastel' => 'icon-pastel.svg' ) as $k => $f ) {
@@ -485,12 +489,18 @@ final class Server {
 		$dir   = $this->data_dir . '/media';
 		$cache = $dir . '/' . $slug . '-' . preg_replace( '/[^0-9A-Za-z.+-]/', '', $version ) . '-' . $file;
 		if ( ! is_file( $cache ) ) {
-			$data = $this->find_media( $slug, $version, $file );
 			if ( ! is_dir( $dir ) ) {
 				mkdir( $dir, 0750, true );
 			}
 			$idx = $this->media_index();
-			$idx[ $slug . '|' . $version . '|' . $file ] = '' !== $data;
+			$key = $slug . '|' . $version . '|' . $file;
+			$was = $idx[ $key ] ?? null;
+			if ( is_int( $was ) && time() - $was <= self::MEDIA_MISS_TTL ) {
+				throw new HttpError( 'Not found', 404 );
+			}
+			$data        = $this->find_media( $slug, $version, $file );
+			$idx         = $this->media_index();
+			$idx[ $key ] = '' !== $data ? true : time();
 			$this->write_json( $dir . '/index.json', $idx );
 			if ( '' === $data ) {
 				throw new HttpError( 'Not found', 404 );
@@ -544,16 +554,19 @@ final class Server {
 			}
 		}
 		// Depo: tek depoda çok paket (plugins/<slug>, themes/<slug>) ya da kökte tek paket.
+		// Önce release tag'i, tag'de yoksa varsayılan dal (görsel sürümden sonra eklenmiş olabilir).
 		$tag = rawurlencode( (string) ( $release['tag'] ?? ( $slug . '-v' . $version ) ) );
-		foreach ( $in_repo as $n ) {
-			foreach ( array( 'plugins/' . $slug . '/', 'themes/' . $slug . '/', '' ) as $base ) {
-				try {
-					$data = $this->github( '/repos/' . $release['repo'] . '/contents/' . $base . $n . '?ref=' . $tag, 'application/vnd.github.raw', null, empty( $release['public'] ) );
-				} catch ( \Throwable $e ) {
-					continue;
-				}
-				if ( $ok( $data ) ) {
-					return $data;
+		foreach ( array( '?ref=' . $tag, '' ) as $ref ) {
+			foreach ( $in_repo as $n ) {
+				foreach ( array( 'plugins/' . $slug . '/', 'themes/' . $slug . '/', '' ) as $base ) {
+					try {
+						$data = $this->github( '/repos/' . $release['repo'] . '/contents/' . $base . $n . $ref, 'application/vnd.github.raw', null, empty( $release['public'] ) );
+					} catch ( \Throwable $e ) {
+						continue;
+					}
+					if ( $ok( $data ) ) {
+						return $data;
+					}
 				}
 			}
 		}
