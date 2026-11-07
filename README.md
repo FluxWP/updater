@@ -70,7 +70,7 @@ To upgrade, extract the new zip over the old one. Settings live in `data/setting
 - `/v1/check` returns `requires_plugins` for every package (the `Requires Plugins:` header), so FluxWP Panel can install missing plugins together.
 - A version containing `-` (e.g. `1.3.0-beta.1`) is visible only on the beta channel.
 
-### Setup wizard (1.12.1)
+### Setup wizard (1.13.0)
 
 The server decides how FluxWP Panel's setup wizard lists plugins. `/v1/check` returns the categories (key, order, name and description in TR/EN) and, for every package, `category`, `order`, `rec` (recommended), a short `desc` (TR/EN) and `icons` (`svg`, `pastel`). Edit them in /admin › Packages and /admin › Categories; until you save, built-in defaults are used. Private packages never appear in the wizard. Icons are read from the package's own zip (`assets/icon.svg`, `assets/icon-pastel.svg`) and served from signed URLs.
 
@@ -93,14 +93,18 @@ Choose **FluxWP desktop repository** under /admin › GitHub for `fluxapp-v<vers
 - **Mobile/desktop app:** releases tagged `v<version>` in the app repository (panel › GitHub › App repository). File names decide the platform: `*windows*`, `*macos*`, `*.apk`, `*ios*`.
 - **FluxWP desktop:** `fluxapp-v<version>` releases in the package repository (or `FLX_UPDATE_FLUXAPP_REPO`). File names carry the brand: `fluxapp-<brand>-<version>-macos-universal.dmg`, `.app.tar.gz`, `.app.tar.gz.sig` and `fluxapp-<brand>-<version>-windows-x64-setup.exe`, `-setup.exe.sig`, `.msi` (uploaded by `fluxapp-desktop.yml` in FluxWP/FluxWP). The app asks the `tauri` endpoint and installs signed bundles in the background.
 
-### Manage from WordPress: Updater Manager (1.12.0)
+### Admin API: manage from another panel (1.12.0)
 
-The **Flux Updater Manager** plugin (FluxWP repository, `flx-updater-manager`) shows this panel inside a WordPress admin: overview, countries, connected sites (issue keys), keyed sites (add, edit access, disable, delete, test), packages, GitHub, instant publish, security switches and country access, files and resources.
+`/v1/admin/*` lets another admin panel (for example a WordPress site) show and change everything on this panel: overview, countries, connected sites (issue keys), keyed sites (add, edit access, disable, delete, test), packages, GitHub, instant publish, security switches and country access, files and resources. Requests carry the key in `X-FluxWP-Manager-Key` (or `Authorization: Bearer`).
 
-1. /admin › **Updater Manager** › name it, *Generate manager key*. The key (`flxm_…`) is shown once; only its sha256 is stored (`manager_keys` in `data/settings.json`).
-2. On the WordPress site: Updater Manager › Connection, server address + manager key, *Save and connect*.
+1. /admin › **Admin API** › name it, *Generate manager key*. The key (`flxm_…`) is shown once; only its sha256 is stored (`manager_keys` in `data/settings.json`).
+2. In the other panel: enter the server address + manager key.
 
 The key reaches every setting and statistic, except creating manager keys and uploading the country database file; those stay on /admin. Delete a key on /admin to cut its access at once. Actions over the key are written to `data/access.log` as `manager:<name>`. The admin API keeps working during an emergency stop and ignores country rules.
+
+### Package moved to a private repository (1.12.1)
+
+When a slug has releases in a private repository, its old releases in a public repository are ignored: the package no longer installs without a key, only the private copy is offered to keys that allow it. To keep such a package keyless, add its slug to *Public packages*.
 
 ### Site address and country (1.10.2)
 

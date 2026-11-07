@@ -1,6 +1,6 @@
 <?php
 /**
- * Yönetici API'si (/v1/admin/*): bu sunucuyu bir WordPress panelinden (Flux Updater Manager)
+ * Yönetici API'si (/v1/admin/*): bu sunucuyu başka bir panelden (ör. bir WordPress sitesi)
  * yönetmek için. Yönetici anahtarıyla (X-FluxWP-Manager-Key ya da Authorization: Bearer) çalışır;
  * paneldeki tüm ayarlar ve istatistikler JSON olarak okunur, işlemler panelin kendi kodu ile yapılır.
  *

@@ -70,7 +70,7 @@ Güncellemek için yeni zip'i üstüne açın. Ayarlar zip'te olmayan `data/sett
 - `/v1/check` her paket için `requires_plugins` döndürür (`Requires Plugins:` başlığı); FluxWP Panel eksik eklentileri birlikte kurar.
 - Sürümünde `-` olan (ör. `1.3.0-beta.1`) yalnız beta kanalında görünür.
 
-### Kurulum sihirbazı (1.12.1)
+### Kurulum sihirbazı (1.13.0)
 
 FluxWP Panel'in kurulum sihirbazındaki eklenti listesini sunucu belirler. `/v1/check` kategorileri (anahtar, sıra, TR/EN ad ve açıklama) ve her paket için `category`, `order`, `rec` (önerilen), kısa `desc` (TR/EN) ve `icons` (`svg`, `pastel`) döndürür. /admin › Paketler ve /admin › Kategoriler'den düzenlenir; kaydedilene kadar yerleşik varsayılanlar kullanılır. Private paketler sihirbazda hiç görünmez. İkonlar paketin kendi zip'inden (`assets/icon.svg`, `assets/icon-pastel.svg`) okunur, imzalı adresten verilir.
 
@@ -91,14 +91,18 @@ FluxWP Panel 1.0.8+ site adresini, WordPress ve PHP sürümünü, saat dilimini 
 
 IP adresi istatistiklere yazılmaz. `data/access.log` IP'yi yalnız hatalı anahtar denemelerinde (güvenlik) tutar, 90 günden eski satırları siler. Günlük sayaçlar 120 gün, site kayıtları son denetimden sonra 180 gün saklanır.
 
-### WordPress'ten yönetim: Updater Manager (1.12.0)
+### Yönetici API'si: başka bir panelden yönetim (1.12.0)
 
-**Flux Updater Manager** eklentisi (FluxWP deposu, `flx-updater-manager`) bu paneli bir WordPress yönetim ekranında gösterir: genel bakış, ülkeler, bağlanan siteler (anahtar ver), anahtarlı siteler (ekle, erişimi düzenle, pasif yap, sil, test et), paketler, GitHub, anında yayın, güvenlik anahtarları ve ülke erişimi, dosyalar ve kaynaklar.
+`/v1/admin/*` bu paneldeki her şeyi başka bir yönetim panelinden (ör. bir WordPress sitesi) gösterip değiştirmeyi sağlar: genel bakış, ülkeler, bağlanan siteler (anahtar ver), anahtarlı siteler (ekle, erişimi düzenle, pasif yap, sil, test et), paketler, GitHub, anında yayın, güvenlik anahtarları ve ülke erişimi, dosyalar ve kaynaklar. İstek anahtarı `X-FluxWP-Manager-Key` (ya da `Authorization: Bearer`) başlığında taşır.
 
-1. /admin › **Updater Manager** › ad verip *Yönetici anahtarı üret*. Anahtar (`flxm_…`) bir kez gösterilir; yalnız sha256 özeti saklanır (`data/settings.json` içinde `manager_keys`).
-2. WordPress sitesinde: Updater Manager › Bağlantı, sunucu adresi + yönetici anahtarı, *Kaydet ve bağlan*.
+1. /admin › **Yönetici API** › ad verip *Yönetici anahtarı üret*. Anahtar (`flxm_…`) bir kez gösterilir; yalnız sha256 özeti saklanır (`data/settings.json` içinde `manager_keys`).
+2. Diğer panelde: sunucu adresi + yönetici anahtarı girilir.
 
 Anahtar tüm ayarlara ve istatistiklere erişir; yönetici anahtarı üretme ve ülke veritabanı dosyası yükleme /admin'de kalır. /admin'de anahtarı silince erişim hemen kesilir. Anahtarla yapılan işlemler `data/access.log`'a `manager:<ad>` olarak yazılır. Yönetici API'si acil durdurmada da çalışır, ülke kuralına takılmaz.
+
+### Private depoya taşınan paket (1.12.1)
+
+Bir slug'ın private depoda release'i varsa public depodaki eski release'leri yok sayılır: paket artık anahtarsız kurulmaz, yalnız private kopyası izinli anahtarlara sunulur. Anahtarsız kalması isteniyorsa slug *Herkese açık paketler* listesine yazılır.
 
 ### Site adresi ve ülke (1.10.2)
 

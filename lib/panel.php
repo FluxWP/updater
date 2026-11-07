@@ -47,7 +47,7 @@ final class Panel {
 	/** @var string */
 	private $notice_type = 'ok';
 
-	/** @var array|null Yönetici API'si (Updater Manager): yönlendirme ve sayfa yerine sonuç burada toplanır. */
+	/** @var array|null Yönetici API'si: yönlendirme ve sayfa yerine sonuç burada toplanır. */
 	private $api = null;
 
 	/** API'den çağrılamayan işlemler (oturum, dosya yükleme, yönetici anahtarı üretme). */
@@ -61,7 +61,7 @@ final class Panel {
 
 	/**
 	 * Paneldeki bir işlemi yönetici API'sinden çalıştırır (AdminApi). Form alanları $params'tan gelir;
-	 * paneldeki her işlem (yeni eklenenler dahil) böylece WordPress'teki Updater Manager'dan da yapılır.
+	 * paneldeki her işlem (yeni eklenenler dahil) böylece yönetici API'siyle başka bir panelden de yapılır.
 	 *
 	 * @return array{ok:bool,code:string,message:string,data:array}
 	 */
@@ -339,7 +339,7 @@ final class Panel {
 				$key  = 'flxm_' . bin2hex( random_bytes( 24 ) );
 				$keys = AdminApi::keys( $this->data_dir );
 				$keys[ hash( 'sha256', $key ) ] = array(
-					'name'    => mb_substr( '' !== $name ? $name : 'Updater Manager', 0, 80 ),
+					'name'    => mb_substr( '' !== $name ? $name : 'Manager', 0, 80 ),
 					'created' => time(),
 					'last'    => 0,
 					'hint'    => substr( $key, -4 ),
@@ -1425,16 +1425,16 @@ var L = <?php echo json_encode( array(
 		<?php
 	}
 
-	/** Updater Manager: bu sunucuyu bir WordPress panelinden yöneten anahtarlar. */
+	/** Yönetici anahtarları: bu sunucuyu yönetici API'siyle başka bir panelden yöneten anahtarlar. */
 	private function view_manager_keys( array $args ): void {
 		$e    = array( __CLASS__, 'e' );
 		$keys = AdminApi::keys( $this->data_dir );
 		?>
 		<div class="card" id="manager">
-			<h2><?php echo __( 'Updater Manager (yönetici anahtarı)' ); ?></h2>
-			<p class="small muted"><?php echo __( 'Bu sunucuyu bir WordPress sitesinden yönetmek için: o sitede <b>Flux Updater Manager</b> eklentisini kurun, sunucu adresini ve buradaki yönetici anahtarını girin. Anahtar bu paneldeki tüm ayarlara ve istatistiklere erişir (yönetici anahtarı üretme ve ülke veritabanı dosyası yükleme hariç); güvenli saklayın.' ); ?></p>
+			<h2><?php echo __( 'Yönetici API\'si (yönetici anahtarı)' ); ?></h2>
+			<p class="small muted"><?php echo __( 'Bu sunucuyu başka bir yönetim panelinden (ör. bir WordPress sitesinden) yönetmek için: orada sunucu adresini ve buradaki yönetici anahtarını girin. Anahtar bu paneldeki tüm ayarlara ve istatistiklere erişir (yönetici anahtarı üretme ve ülke veritabanı dosyası yükleme hariç); güvenli saklayın.' ); ?></p>
 			<?php if ( ! empty( $args['new_manager_key'] ) ) : ?>
-				<p><?php echo __( '<b>Bu anahtar bir daha gösterilmez.</b> Şimdi kopyalayıp Updater Manager ayarlarına yapıştırın. Sunucu adresi:' ); ?></p>
+				<p><?php echo __( '<b>Bu anahtar bir daha gösterilmez.</b> Şimdi kopyalayıp yönetim panelinin bağlantı ayarlarına yapıştırın. Sunucu adresi:' ); ?></p>
 				<pre><?php echo $e( $this->server->base_url() ); ?></pre>
 				<pre class="key" id="newmkey"><?php echo $e( $args['new_manager_key'] ); ?></pre>
 				<p><button class="btn sec sm" type="button" onclick="navigator.clipboard.writeText(document.getElementById('newmkey').textContent);this.textContent=<?php echo $e( json_encode( __( 'Kopyalandı' ), JSON_UNESCAPED_UNICODE ) ); ?>"><?php echo __( 'Anahtarı kopyala' ); ?></button></p>
@@ -1606,7 +1606,7 @@ var L = <?php echo json_encode( array(
 		$base  = $this->server->base_url() . '/admin';
 		?>
 		<nav class="tabs-nav">
-			<a href="#usage"><?php echo __( 'Genel bakış' ); ?></a><a href="#countries"><?php echo __( 'Ülkeler' ); ?></a><a href="#resources"><?php echo __( 'Kaynaklar' ); ?></a><a href="#security"><?php echo __( 'Güvenlik' ); ?></a><a href="#settings"><?php echo __( 'Ayarlar' ); ?></a><a href="#keys"><?php echo __( 'Anahtarlı siteler' ); ?></a><a href="#packages"><?php echo __( 'Paketler' ); ?></a><a href="#categories"><?php echo __( 'Kategoriler' ); ?></a><a href="#manager">Updater Manager</a>
+			<a href="#usage"><?php echo __( 'Genel bakış' ); ?></a><a href="#countries"><?php echo __( 'Ülkeler' ); ?></a><a href="#resources"><?php echo __( 'Kaynaklar' ); ?></a><a href="#security"><?php echo __( 'Güvenlik' ); ?></a><a href="#settings"><?php echo __( 'Ayarlar' ); ?></a><a href="#keys"><?php echo __( 'Anahtarlı siteler' ); ?></a><a href="#packages"><?php echo __( 'Paketler' ); ?></a><a href="#categories"><?php echo __( 'Kategoriler' ); ?></a><a href="#manager"><?php echo __( 'Yönetici API' ); ?></a>
 		</nav>
 		<div class="sec-head" id="usage">
 			<h2 class="sec"><?php echo __( 'Genel bakış' ); ?></h2>
