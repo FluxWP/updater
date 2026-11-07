@@ -303,4 +303,17 @@ return array(
 	'Engellenen istek 403 (region_blocked) alır ve yalnız ülke koduyla sayılır. Ülkesi bulunamayan istek "engelle" kipinde geçer, "yalnız izin ver" kipinde engellenir. Kural güncelleme kontrolü, paket ve uygulama indirmelerine uygulanır; panel etkilenmez.' => 'A blocked request gets 403 (region_blocked) and is counted by country code only. A request with an unknown country passes in "block" mode and is blocked in "allow only" mode. The rule covers update checks, package and app downloads; the panel is not affected.',
 	'%s listede yok' => '%s is not in the list',
 	'Kendi ülkenizdeki anahtarsız siteler de engellenir.' => 'Keyless sites in your own country are blocked too.',
+	// Updater Manager (1.12.0)
+	'Yönetici anahtarı silindi. O anahtarla artık yönetilemez.' => 'Manager key deleted. It can no longer manage this server.',
+	'%d eski zip silindi (%s).' => '%d old zips deleted (%s).',
+	'Site anahtarı üretildi. Bir daha gösterilmez; şimdi kopyalayın.' => 'Site key generated. It will not be shown again; copy it now.',
+	'Updater Manager (yönetici anahtarı)' => 'Updater Manager (manager key)',
+	'Bu sunucuyu bir WordPress sitesinden yönetmek için: o sitede <b>Flux Updater Manager</b> eklentisini kurun, sunucu adresini ve buradaki yönetici anahtarını girin. Anahtar bu paneldeki tüm ayarlara ve istatistiklere erişir (parola, yönetici anahtarı üretme ve dosya yükleme hariç); güvenli saklayın.' => 'To manage this server from a WordPress site: install the <b>Flux Updater Manager</b> plugin there and enter the server address and a manager key from here. The key reaches every setting and statistic on this panel (except the password, creating manager keys and file uploads); keep it safe.',
+	'<b>Bu anahtar bir daha gösterilmez.</b> Şimdi kopyalayıp Updater Manager ayarlarına yapıştırın. Sunucu adresi:' => '<b>This key will not be shown again.</b> Copy it now and paste it into the Updater Manager settings. Server address:',
+	'Anahtar' => 'Key',
+	'Oluşturuldu' => 'Created',
+	'Son kullanım' => 'Last used',
+	'Bu yönetici anahtarı silinsin mi?' => 'Delete this manager key?',
+	'ör. fluxwp.com yönetim' => 'e.g. fluxwp.com admin',
+	'Yönetici anahtarı üret' => 'Generate manager key',
 );

@@ -89,6 +89,15 @@ Choose **FluxWP desktop repository** under /admin › GitHub for `fluxapp-v<vers
 - **Mobile/desktop app:** releases tagged `v<version>` in the app repository (panel › GitHub › App repository). File names decide the platform: `*windows*`, `*macos*`, `*.apk`, `*ios*`.
 - **FluxWP desktop:** `fluxapp-v<version>` releases in the package repository (or `FLX_UPDATE_FLUXAPP_REPO`). File names carry the brand: `fluxapp-<brand>-<version>-macos-universal.dmg`, `.app.tar.gz`, `.app.tar.gz.sig` and `fluxapp-<brand>-<version>-windows-x64-setup.exe`, `-setup.exe.sig`, `.msi` (uploaded by `fluxapp-desktop.yml` in FluxWP/FluxWP). The app asks the `tauri` endpoint and installs signed bundles in the background.
 
+### Manage from WordPress: Updater Manager (1.12.0)
+
+The **Flux Updater Manager** plugin (FluxWP repository, `flx-updater-manager`) shows this panel inside a WordPress admin: overview, countries, connected sites (issue keys), keyed sites (add, edit access, disable, delete, test), packages, GitHub, instant publish, security switches and country access, files and resources.
+
+1. /admin › **Updater Manager** › name it, *Generate manager key*. The key (`flxm_…`) is shown once; only its sha256 is stored (`manager_keys` in `data/settings.json`).
+2. On the WordPress site: Updater Manager › Connection, server address + manager key, *Save and connect*.
+
+The key reaches every setting and statistic, except the admin password session, creating manager keys and the country database upload; those stay on /admin. Delete a key on /admin to cut its access at once. Actions over the key are written to `data/access.log` as `manager:<name>`. The admin API keeps working during an emergency stop and ignores country rules.
+
 ### Site address and country (1.10.2)
 
 Every update check records the site address (scheme + host, plus subdirectory; no query) and the country code, regardless of the usage-data opt-in, like a strictly necessary cookie. The address comes from the request body or WordPress's User-Agent. IPs are never stored. WordPress/PHP versions, time zone and locale still need the opt-in.
@@ -117,6 +126,9 @@ Every update check records the site address (scheme + host, plus subdirectory; n
 | `GET /v1/fluxapp/<brand>/tauri/<target>/<arch>/<version>` | public; Tauri updater format (`darwin` → `.app.tar.gz`, `windows` → `setup.exe`), 204 if there is no newer version |
 | `GET /v1/fluxapp/download/<tag>/<file>` | public; 302 to the GitHub download URL |
 | `POST /v1/webhook` | signed with `X-Hub-Signature-256`; clears the release cache |
+| `GET /v1/admin/info\|overview\|resources\|settings\|repos` | manager key (`X-FluxWP-Manager-Key` or `Authorization: Bearer`); panel data as JSON, `?lang=tr\|en`, `overview?r=7\|30\|90` |
+| `POST /v1/admin/action` | manager key; runs a panel action, body `{"action":"save_switch","switch":"lockdown","on":"1"}` (same fields as the panel forms). Errors: 401 `manager_key_invalid`, 400 `action_denied`, 422 validation |
+| `POST /v1/admin/test-key` | manager key; `{"key":"flxu_…"}` → valid, active, visible packages |
 | `GET /admin` | admin panel (`/status` redirects here) |
 
 ## Docker / Coolify (optional)

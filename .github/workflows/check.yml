@@ -21,3 +21,5 @@ jobs:
         run: find lib tests -name '*.php' -print0 | xargs -0 -n1 php -l
       - name: Desktop source configuration regression
         run: php tests/desktop-repository.php
+      - name: Admin API (Updater Manager)
+        run: php tests/admin-api.php

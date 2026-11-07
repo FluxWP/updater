@@ -47,10 +47,60 @@ final class Panel {
 	/** @var string */
 	private $notice_type = 'ok';
 
+	/** @var array|null Yönetici API'si (Updater Manager): yönlendirme ve sayfa yerine sonuç burada toplanır. */
+	private $api = null;
+
+	/** API'den çağrılamayan işlemler (oturum, dosya yükleme, yönetici anahtarı üretme). */
+	const API_DENY = array( 'setup', 'login', 'logout', 'geo_upload', 'gen_manager_key' );
+
 	public function __construct( Server $server, array $config ) {
 		$this->server   = $server;
 		$this->config   = $config;
 		$this->data_dir = rtrim( (string) $config['data_dir'], '/' );
+	}
+
+	/**
+	 * Paneldeki bir işlemi yönetici API'sinden çalıştırır (AdminApi). Form alanları $params'tan gelir;
+	 * paneldeki her işlem (yeni eklenenler dahil) böylece WordPress'teki Updater Manager'dan da yapılır.
+	 *
+	 * @return array{ok:bool,code:string,message:string,data:array}
+	 */
+	public function api_action( string $action, array $params, string $actor ): array {
+		if ( in_array( $action, self::API_DENY, true ) || ! preg_match( '/^[a-z_]{2,40}$/', $action ) ) {
+			throw new HttpError( 'This action is not available over the API', 400, 'action_denied' );
+		}
+		$post      = $_POST;
+		$get       = $_GET;
+		$_POST     = $params;
+		$_GET      = array();
+		$this->api = array( 'actor' => $actor, 'msg' => '', 'extra' => array(), 'args' => array(), 'unknown' => false );
+		try {
+			$this->dispatch( $action );
+			$r = $this->api;
+		} finally {
+			$this->api = null;
+			$_POST     = $post;
+			$_GET      = $get;
+		}
+		if ( $r['unknown'] ) {
+			throw new HttpError( 'Unknown action', 400, 'unknown_action' );
+		}
+		$err  = 'err' === $this->notice_type && '' !== $this->notice;
+		$msgs = $this->messages( $r['extra'] );
+		$text = $err ? $this->notice : ( isset( $msgs[ $r['msg'] ] ) ? $msgs[ $r['msg'] ][0] : $this->notice );
+		if ( isset( $msgs[ $r['msg'] ] ) && 'err' === $msgs[ $r['msg'] ][1] ) {
+			$err = true;
+		}
+		if ( '' === $text && ! empty( $r['args']['new_key'] ) ) {
+			$text = __( 'Site anahtarı üretildi. Bir daha gösterilmez; şimdi kopyalayın.' );
+		}
+		$this->notice = '';
+		return array(
+			'ok'      => ! $err,
+			'code'    => '' !== $r['msg'] ? $r['msg'] : ( $err ? 'error' : 'done' ),
+			'message' => (string) $text,
+			'data'    => $r['args'],
+		);
 	}
 
 	/* ------------------------------------------------------------------ */
@@ -109,7 +159,17 @@ final class Panel {
 			return;
 		}
 
-		$msgs = array(
+		$msgs = $this->messages( $_GET );
+		$m = (string) ( $_GET['m'] ?? '' );
+		if ( isset( $msgs[ $m ] ) ) {
+			$this->notice( $msgs[ $m ][0], $msgs[ $m ][1] );
+		}
+		$this->page( __( 'Panel' ), array( $this, 'view_dashboard' ) );
+	}
+
+	/** Yönlendirme kodlarının metinleri (panel ve API). */
+	private function messages( array $q ): array {
+		return array(
 			'github'  => array( __( 'GitHub ayarları kaydedildi.' ), 'ok' ),
 			'deleted' => array( __( 'Site silindi. O sitenin anahtarı artık çalışmaz.' ), 'ok' ),
 			'updated' => array( __( 'Site güncellendi.' ), 'ok' ),
@@ -120,18 +180,14 @@ final class Panel {
 			'pw'      => array( __( 'Parola değiştirildi.' ), 'ok' ),
 			'webhook' => array( __( 'Webhook secret üretildi. GitHub\'a eklemeyi unutmayın.' ), 'ok' ),
 			'zips'    => array( __( 'Dosya saklama ayarı kaydedildi.' ), 'ok' ),
-			'log'     => array( sprintf( __( 'Erişim günlüğü temizlendi (%s).' ), self::size( (int) ( $_GET['b'] ?? 0 ) ) ), 'ok' ),
+			'log'     => array( sprintf( __( 'Erişim günlüğü temizlendi (%s).' ), self::size( (int) ( $q['b'] ?? 0 ) ) ), 'ok' ),
 			'switch'  => array( __( 'Dağıtım ayarı kaydedildi.' ), 'ok' ),
 			'georule' => array( __( 'Ülke erişimi kaydedildi.' ), 'ok' ),
 			'geodb'   => array( __( 'Ülke veritabanı güncellendi.' ), 'ok' ),
 			'geodel'  => array( __( 'Ülke veritabanı silindi.' ), 'ok' ),
-			'pruned'  => array( sprintf( '%d eski zip silindi (%s).', (int) ( $_GET['n'] ?? 0 ), self::size( (int) ( $_GET['b'] ?? 0 ) ) ), 'ok' ),
+			'mkey_off' => array( __( 'Yönetici anahtarı silindi. O anahtarla artık yönetilemez.' ), 'ok' ),
+			'pruned'  => array( sprintf( __( '%d eski zip silindi (%s).' ), (int) ( $q['n'] ?? 0 ), self::size( (int) ( $q['b'] ?? 0 ) ) ), 'ok' ),
 		);
-		$m = (string) ( $_GET['m'] ?? '' );
-		if ( isset( $msgs[ $m ] ) ) {
-			$this->notice( $msgs[ $m ][0], $msgs[ $m ][1] );
-		}
-		$this->page( __( 'Panel' ), array( $this, 'view_dashboard' ) );
 	}
 
 	private function dispatch( string $action ): void {
@@ -274,6 +330,32 @@ final class Panel {
 				$this->redirect( 'deleted' );
 				return;
 
+			case 'gen_manager_key':
+				$name = trim( (string) ( $_POST['name'] ?? '' ) );
+				$key  = 'flxm_' . bin2hex( random_bytes( 24 ) );
+				$keys = AdminApi::keys( $this->data_dir );
+				$keys[ hash( 'sha256', $key ) ] = array(
+					'name'    => mb_substr( '' !== $name ? $name : 'Updater Manager', 0, 80 ),
+					'created' => time(),
+					'last'    => 0,
+					'hint'    => substr( $key, -4 ),
+				);
+				Settings::update( $this->data_dir, array( 'manager_keys' => $keys ) );
+				$this->server_log( 'manager key added ' . $keys[ hash( 'sha256', $key ) ]['name'] );
+				$this->page( __( 'Panel' ), array( $this, 'view_dashboard' ), array( 'new_manager_key' => $key ) );
+				return;
+
+			case 'revoke_manager_key':
+				$hash = (string) ( $_POST['hash'] ?? '' );
+				$keys = AdminApi::keys( $this->data_dir );
+				if ( isset( $keys[ $hash ] ) ) {
+					$this->server_log( 'manager key revoked ' . $keys[ $hash ]['name'] );
+					unset( $keys[ $hash ] );
+					Settings::update( $this->data_dir, array( 'manager_keys' => $keys ) );
+				}
+				$this->redirect( 'mkey_off', array(), 'manager' );
+				return;
+
 			case 'test_key':
 				$this->page( __( 'Panel' ), array( $this, 'view_dashboard' ), array( 'test_key' => trim( (string) ( $_POST['key'] ?? '' ) ) ) );
 				return;
@@ -287,9 +369,15 @@ final class Panel {
 				}
 				Settings::update( $this->data_dir, array( 'admin_password_hash' => password_hash( $p1, PASSWORD_DEFAULT ) ) );
 				$this->config['admin_password_hash'] = Settings::load( $this->data_dir )['admin_password_hash'];
-				$this->login_as( $this->admin_user() );
+				if ( null === $this->api ) {
+					$this->login_as( $this->admin_user() );
+				}
 				$this->redirect( 'pw' );
 				return;
+		}
+		if ( null !== $this->api ) {
+			$this->api['unknown'] = true;
+			return;
 		}
 		$this->redirect();
 	}
@@ -587,7 +675,7 @@ final class Panel {
 	/** Güvenlik değişikliklerini access.log'a yazar (kim, ne zaman). */
 	private function server_log( string $msg ): void {
 		if ( is_dir( $this->data_dir ) ) {
-			@file_put_contents( $this->data_dir . '/access.log', gmdate( 'c' ) . "\tadmin\t" . str_replace( array( "\n", "\r", "\t" ), ' ', $this->admin_user() . ' ' . $msg ) . "\n", FILE_APPEND | LOCK_EX );
+			@file_put_contents( $this->data_dir . '/access.log', gmdate( 'c' ) . "\tadmin\t" . str_replace( array( "\n", "\r", "\t" ), ' ', ( null !== $this->api ? 'manager:' . $this->api['actor'] : $this->admin_user() ) . ' ' . $msg ) . "\n", FILE_APPEND | LOCK_EX );
 		}
 	}
 
@@ -633,6 +721,11 @@ final class Panel {
 	}
 
 	private function redirect( string $msg = '', array $extra = array(), string $anchor = '' ): void {
+		if ( null !== $this->api ) {
+			$this->api['msg']   = $msg;
+			$this->api['extra'] = $extra;
+			return;
+		}
 		$q = $msg ? '?' . http_build_query( array( 'm' => $msg ) + $extra ) : '';
 		header( 'Location: ' . $this->server->base_url() . '/admin' . $q . ( $anchor ? '#' . $anchor : '' ), true, 303 );
 	}
@@ -653,6 +746,10 @@ final class Panel {
 	}
 
 	private function page( string $title, callable $view, array $args = array() ): void {
+		if ( null !== $this->api ) {
+			$this->api['args'] = $args;
+			return;
+		}
 		header( 'Content-Type: text/html; charset=utf-8' );
 		$e = array( __CLASS__, 'e' );
 		?>
@@ -1219,6 +1316,44 @@ var L = <?php echo json_encode( array(
 				</form>
 			</div>
 		</div>
+		<?php $this->view_manager_keys( $args ); ?>
+		<?php
+	}
+
+	/** Updater Manager: bu sunucuyu bir WordPress panelinden yöneten anahtarlar. */
+	private function view_manager_keys( array $args ): void {
+		$e    = array( __CLASS__, 'e' );
+		$keys = AdminApi::keys( $this->data_dir );
+		?>
+		<div class="card" id="manager">
+			<h2><?php echo __( 'Updater Manager (yönetici anahtarı)' ); ?></h2>
+			<p class="small muted"><?php echo __( 'Bu sunucuyu bir WordPress sitesinden yönetmek için: o sitede <b>Flux Updater Manager</b> eklentisini kurun, sunucu adresini ve buradaki yönetici anahtarını girin. Anahtar bu paneldeki tüm ayarlara ve istatistiklere erişir (parola, yönetici anahtarı üretme ve dosya yükleme hariç); güvenli saklayın.' ); ?></p>
+			<?php if ( ! empty( $args['new_manager_key'] ) ) : ?>
+				<p><?php echo __( '<b>Bu anahtar bir daha gösterilmez.</b> Şimdi kopyalayıp Updater Manager ayarlarına yapıştırın. Sunucu adresi:' ); ?></p>
+				<pre><?php echo $e( $this->server->base_url() ); ?></pre>
+				<pre class="key" id="newmkey"><?php echo $e( $args['new_manager_key'] ); ?></pre>
+				<p><button class="btn sec sm" type="button" onclick="navigator.clipboard.writeText(document.getElementById('newmkey').textContent);this.textContent=<?php echo $e( json_encode( __( 'Kopyalandı' ), JSON_UNESCAPED_UNICODE ) ); ?>"><?php echo __( 'Anahtarı kopyala' ); ?></button></p>
+			<?php endif; ?>
+			<?php if ( $keys ) : ?>
+			<div class="table-wrap"><table>
+				<tr><th><?php echo __( 'Ad' ); ?></th><th><?php echo __( 'Anahtar' ); ?></th><th><?php echo __( 'Oluşturuldu' ); ?></th><th><?php echo __( 'Son kullanım' ); ?></th><th></th></tr>
+				<?php foreach ( $keys as $hash => $k ) : ?>
+					<tr>
+						<td><b><?php echo $e( $k['name'] ?? '' ); ?></b></td>
+						<td class="small"><code>flxm_…<?php echo $e( $k['hint'] ?? '' ); ?></code></td>
+						<td class="small"><?php echo $e( gmdate( 'Y-m-d H:i', (int) ( $k['created'] ?? 0 ) ) ); ?> UTC</td>
+						<td class="small"><?php echo $e( self::ago( (int) ( $k['last'] ?? 0 ) ) ); ?></td>
+						<td><form method="post" class="inline" onsubmit="return confirm(<?php echo $e( json_encode( __( 'Bu yönetici anahtarı silinsin mi?' ), JSON_UNESCAPED_UNICODE ) ); ?>)"><?php echo $this->hidden( 'revoke_manager_key' ); ?><input type="hidden" name="hash" value="<?php echo $e( $hash ); ?>"><button class="btn danger sm"><?php echo __( 'Sil' ); ?></button></form></td>
+					</tr>
+				<?php endforeach; ?>
+			</table></div>
+			<?php endif; ?>
+			<form method="post" action="#manager" class="row" style="margin-top:10px" autocomplete="off">
+				<?php echo $this->hidden( 'gen_manager_key' ); ?>
+				<input type="text" name="name" placeholder="<?php echo $e( __( 'ör. fluxwp.com yönetim' ) ); ?>" style="flex:1;min-width:200px" maxlength="80">
+				<button class="btn sm"><?php echo __( 'Yönetici anahtarı üret' ); ?></button>
+			</form>
+		</div>
 		<?php
 	}
 
@@ -1256,7 +1391,7 @@ var L = <?php echo json_encode( array(
 		return _f( '%d gün önce', (int) floor( $d / DAY_SECONDS ) );
 	}
 
-	private static function country_name( string $cc ): string {
+	public static function country_name( string $cc ): string {
 		if ( '?' === $cc || '' === $cc ) {
 			return __( 'Bilinmiyor' );
 		}
@@ -1294,7 +1429,7 @@ var L = <?php echo json_encode( array(
 	}
 
 	/** Günlük çubuk grafik: açık = kontrol isteği, koyu = tekil site, nokta = indirme. */
-	private static function chart( array $series ): string {
+	public static function chart( array $series ): string {
 		$W   = 960;
 		$H   = 240;
 		$pl  = 40;
@@ -1339,7 +1474,7 @@ var L = <?php echo json_encode( array(
 	}
 
 	/** Dünya haritası (Flux Analytics ile aynı veri, Natural Earth 1:110m). */
-	private function world_map( array $countries ): string {
+	public function world_map( array $countries ): string {
 		$file = __DIR__ . '/world.json';
 		$w    = is_file( $file ) ? json_decode( (string) file_get_contents( $file ), true ) : null;
 		if ( ! is_array( $w ) || empty( $w['p'] ) ) {
@@ -1366,7 +1501,7 @@ var L = <?php echo json_encode( array(
 		$base  = $this->server->base_url() . '/admin';
 		?>
 		<nav class="tabs-nav">
-			<a href="#usage"><?php echo __( 'Genel bakış' ); ?></a><a href="#countries"><?php echo __( 'Ülkeler' ); ?></a><a href="#resources"><?php echo __( 'Kaynaklar' ); ?></a><a href="#security"><?php echo __( 'Güvenlik' ); ?></a><a href="#settings"><?php echo __( 'Ayarlar' ); ?></a><a href="#keys"><?php echo __( 'Anahtarlı siteler' ); ?></a><a href="#packages"><?php echo __( 'Paketler' ); ?></a>
+			<a href="#usage"><?php echo __( 'Genel bakış' ); ?></a><a href="#countries"><?php echo __( 'Ülkeler' ); ?></a><a href="#resources"><?php echo __( 'Kaynaklar' ); ?></a><a href="#security"><?php echo __( 'Güvenlik' ); ?></a><a href="#settings"><?php echo __( 'Ayarlar' ); ?></a><a href="#keys"><?php echo __( 'Anahtarlı siteler' ); ?></a><a href="#packages"><?php echo __( 'Paketler' ); ?></a><a href="#manager">Updater Manager</a>
 		</nav>
 		<div class="sec-head" id="usage">
 			<h2 class="sec"><?php echo __( 'Genel bakış' ); ?></h2>
