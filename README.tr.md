@@ -87,6 +87,15 @@ FluxWP Panel 1.0.8+ site adresini, WordPress ve PHP sürümünü, saat dilimini 
 
 IP adresi istatistiklere yazılmaz. `data/access.log` IP'yi yalnız hatalı anahtar denemelerinde (güvenlik) tutar, 90 günden eski satırları siler. Günlük sayaçlar 120 gün, site kayıtları son denetimden sonra 180 gün saklanır.
 
+### WordPress'ten yönetim: Updater Manager (1.12.0)
+
+**Flux Updater Manager** eklentisi (FluxWP deposu, `flx-updater-manager`) bu paneli bir WordPress yönetim ekranında gösterir: genel bakış, ülkeler, bağlanan siteler (anahtar ver), anahtarlı siteler (ekle, erişimi düzenle, pasif yap, sil, test et), paketler, GitHub, anında yayın, güvenlik anahtarları ve ülke erişimi, dosyalar ve kaynaklar.
+
+1. /admin › **Updater Manager** › ad verip *Yönetici anahtarı üret*. Anahtar (`flxm_…`) bir kez gösterilir; yalnız sha256 özeti saklanır (`data/settings.json` içinde `manager_keys`).
+2. WordPress sitesinde: Updater Manager › Bağlantı, sunucu adresi + yönetici anahtarı, *Kaydet ve bağlan*.
+
+Anahtar tüm ayarlara ve istatistiklere erişir; yönetici anahtarı üretme ve ülke veritabanı dosyası yükleme /admin'de kalır. /admin'de anahtarı silince erişim hemen kesilir. Anahtarla yapılan işlemler `data/access.log`'a `manager:<ad>` olarak yazılır. Yönetici API'si acil durdurmada da çalışır, ülke kuralına takılmaz.
+
 ### Site adresi ve ülke (1.10.2)
 
 Her güncelleme denetimi, kullanım verisi izninden bağımsız olarak site adresini (şema + host, varsa alt dizin; sorgu yok) ve ülke kodunu kaydeder; zorunlu çerez gibi. Adres istek gövdesinden ya da WordPress User-Agent'ından alınır. IP hiç saklanmaz. WordPress/PHP sürümü, saat dilimi ve dil yine izin ister.
@@ -114,6 +123,9 @@ Her güncelleme denetimi, kullanım verisi izninden bağımsız olarak site adre
 | `GET /v1/fluxapp/<marka>/tauri/<target>/<arch>/<sürüm>` | herkese açık; Tauri updater biçimi (`darwin` → `.app.tar.gz`, `windows` → `setup.exe`), yeni sürüm yoksa 204 |
 | `GET /v1/fluxapp/download/<tag>/<dosya>` | herkese açık; GitHub indirme adresine 302 |
 | `POST /v1/webhook` | `X-Hub-Signature-256` imzalı; release önbelleğini boşaltır |
+| `GET /v1/admin/info\|overview\|resources\|settings\|repos` | yönetici anahtarı (`X-FluxWP-Manager-Key` ya da `Authorization: Bearer`); panel verisi JSON, `?lang=tr\|en`, `overview?r=7\|30\|90` |
+| `POST /v1/admin/action` | yönetici anahtarı; panel işlemi çalıştırır, gövde `{"action":"save_switch","switch":"lockdown","on":"1"}` (panel formlarıyla aynı alanlar). Hatalar: 401 `manager_key_invalid`, 400 `action_denied`, 422 doğrulama |
+| `POST /v1/admin/test-key` | yönetici anahtarı; `{"key":"flxu_…"}` → geçerli mi, aktif mi, görünen paketler |
 | `GET /admin` | yönetim paneli (`/status` buraya yönlenir) |
 
 ## Docker / Coolify (isteğe bağlı)

@@ -53,6 +53,14 @@ final class I18n {
 		}
 	}
 
+	/** Bu istek için dili seçer, çerez yazmaz (yönetici API'si). */
+	public static function use_lang( string $lang ): void {
+		if ( isset( self::LANGS[ $lang ] ) && $lang !== self::$lang ) {
+			self::$lang = $lang;
+			self::$map  = null;
+		}
+	}
+
 	public static function t( string $tr ): string {
 		if ( 'tr' === self::lang() ) {
 			return $tr;

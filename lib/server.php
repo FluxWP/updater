@@ -9,7 +9,7 @@
 
 namespace FLXUpdate;
 
-const VERSION = '1.10.2';
+const VERSION = '1.12.0';
 const DAY_SECONDS = 86400;
 
 class HttpError extends \Exception {
@@ -77,6 +77,11 @@ final class Server {
 						'paused'     => ! empty( $this->config['lockdown'] ),
 					)
 				);
+				return;
+			}
+			// Yönetici API'si (Updater Manager): acil durdurma ve ülke kuralından bağımsız, yönetici anahtarıyla.
+			if ( 0 === strpos( $path, '/v1/admin/' ) ) {
+				( new AdminApi( $this, $this->config ) )->handle( $method, substr( $path, 10 ) );
 				return;
 			}
 			if ( 0 === strpos( $path, '/v1/' ) && '/v1/webhook' !== $path ) {
