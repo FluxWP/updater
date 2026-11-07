@@ -9,7 +9,7 @@
 
 namespace FLXUpdate;
 
-const VERSION = '1.13.0';
+const VERSION = '1.13.1';
 const DAY_SECONDS = 86400;
 
 class HttpError extends \Exception {
@@ -442,82 +442,155 @@ final class Server {
 		return substr( hash_hmac( 'sha256', $slug . '|' . $version, $this->media_secret() ), 0, 24 );
 	}
 
-	/** Bulunamayan medya bir gün sonra yeniden aranır (depoya sonradan eklenmiş olabilir). */
-	const MEDIA_MISS_TTL = 86400;
-
-	/** Bilinen medya durumu: "slug|sürüm|dosya" => true (var) / bulunamadığı zaman (unix). */
-	private function media_index(): array {
-		return $this->read_json( $this->data_dir . '/media/index.json' );
-	}
-
-	private function media_url( array $rel, string $file ): string {
-		return $this->base_url() . '/v1/media/' . $rel['slug'] . '/' . rawurlencode( $rel['version'] ) . '/' . $file . '?t=' . $this->media_token( $rel['slug'], $rel['version'] );
-	}
-
 	/**
-	 * Katalogdaki paketin medya adresleri: icons {svg, pastel}, shots {tr, en}. Adres imzalıdır: kataloğu alan
-	 * site kullanabilir, private paketin dosyası tahminle açılamaz. Bulunmadığı bilinen dosya verilmez.
+	 * Sürüm başına önbellek. Zip'ten ya da release tag'inden gelen dosya o sürüm için değişmez, kalıcı tutulur.
+	 * Tag'de olmayıp varsayılan daldan gelen dosya ile bulunamayan dosya bu süreden sonra yeniden kontrol edilir;
+	 * içerik değişince adresteki h (içerik özeti) de değişir, site ve tarayıcı yenisini hemen alır.
 	 */
-	private function media_urls( array $rel ): array {
-		if ( empty( $rel['asset_id'] ) ) {
-			return array( 'icons' => array(), 'shots' => array() );
-		}
-		$idx  = $this->media_index();
-		$has  = function ( string $file ) use ( $idx, $rel ): bool {
-			$v = $idx[ $rel['slug'] . '|' . $rel['version'] . '|' . $file ] ?? true;
-			return true === $v || ( is_int( $v ) && time() - $v > self::MEDIA_MISS_TTL );
-		};
-		$out = array( 'icons' => array(), 'shots' => array() );
-		foreach ( array( 'svg' => 'icon.svg', 'pastel' => 'icon-pastel.svg' ) as $k => $f ) {
-			if ( $has( $f ) ) {
-				$out['icons'][ $k ] = $this->media_url( $rel, $f );
-			}
-		}
-		foreach ( array( 'tr', 'en' ) as $l ) {
-			if ( $has( 'wizard-' . $l . '.jpg' ) ) {
-				$out['shots'][ $l ] = $this->media_url( $rel, 'wizard-' . $l . '.jpg' );
+	const MEDIA_RECHECK = 300;
+
+	/** Medya durumu: "slug|sürüm|dosya" => {ok, at, h, src}. src: zip | tag | branch. */
+	private function media_index(): array {
+		$out = array();
+		foreach ( $this->read_json( $this->data_dir . '/media/index.json' ) as $k => $v ) {
+			if ( is_array( $v ) ) {
+				$out[ $k ] = $v + array( 'ok' => false, 'at' => 0, 'h' => '', 'src' => '' );
+			} elseif ( true === $v ) { // 1.13.0 kaydı
+				$out[ $k ] = array( 'ok' => true, 'at' => 0, 'h' => '', 'src' => 'tag' );
 			}
 		}
 		return $out;
 	}
 
-	/** GET /v1/media/<slug>/<sürüm>/<dosya>?t=<imza> */
+	/** Kayıt yeniden kontrol edilmeli mi: bulunamamış ya da varsayılan daldan gelmiş ve süresi dolmuş. */
+	private static function media_stale( ?array $e ): bool {
+		if ( null === $e ) {
+			return true;
+		}
+		return ( ! $e['ok'] || 'branch' === $e['src'] ) && time() - (int) $e['at'] > self::MEDIA_RECHECK;
+	}
+
+	private function media_url( array $rel, string $file, string $hash = '' ): string {
+		return $this->base_url() . '/v1/media/' . $rel['slug'] . '/' . rawurlencode( $rel['version'] ) . '/' . $file . '?t=' . $this->media_token( $rel['slug'], $rel['version'] ) . ( '' !== $hash ? '&h=' . $hash : '' );
+	}
+
+	/**
+	 * Katalogdaki paketin medya adresleri: icons {svg, pastel}, shots {tr, en}. Adres imzalıdır: kataloğu alan
+	 * site kullanabilir, private paketin dosyası tahminle açılamaz. Bulunmadığı bilinen dosya, yeniden kontrol
+	 * zamanı gelene kadar verilmez.
+	 */
+	private function media_urls( array $rel ): array {
+		if ( empty( $rel['asset_id'] ) ) {
+			return array( 'icons' => array(), 'shots' => array() );
+		}
+		$idx = $this->media_index();
+		$url = function ( string $file ) use ( $idx, $rel ): string {
+			$e = $idx[ $rel['slug'] . '|' . $rel['version'] . '|' . $file ] ?? null;
+			if ( $e && ! $e['ok'] && ! self::media_stale( $e ) ) {
+				return '';
+			}
+			return $this->media_url( $rel, $file, $e && $e['ok'] ? (string) $e['h'] : '' );
+		};
+		$out = array( 'icons' => array(), 'shots' => array() );
+		foreach ( array( 'svg' => 'icon.svg', 'pastel' => 'icon-pastel.svg', 'tr' => 'wizard-tr.jpg', 'en' => 'wizard-en.jpg' ) as $k => $f ) {
+			$u = $url( $f );
+			if ( '' !== $u ) {
+				$out[ 'svg' === $k || 'pastel' === $k ? 'icons' : 'shots' ][ $k ] = $u;
+			}
+		}
+		return $out;
+	}
+
+	/** Medya kaydını döndürür; yoksa, dosya silinmişse ya da yeniden kontrol zamanı geldiyse kaynaktan çeker. */
+	private function media_refresh( string $slug, string $version, string $file ): array {
+		$dir   = $this->data_dir . '/media';
+		$cache = $dir . '/' . $slug . '-' . preg_replace( '/[^0-9A-Za-z.+-]/', '', $version ) . '-' . $file;
+		$key   = $slug . '|' . $version . '|' . $file;
+		$e     = $this->media_index()[ $key ] ?? null;
+		if ( ! is_file( $cache ) && $e && $e['ok'] ) {
+			$e = null; // dosya silinmiş: yeniden çek
+		}
+		if ( ! self::media_stale( $e ) ) {
+			return $e;
+		}
+		if ( ! is_dir( $dir ) ) {
+			mkdir( $dir, 0750, true );
+		}
+		$src  = '';
+		$data = $this->find_media( $slug, $version, $file, $src );
+		$e    = array( 'ok' => '' !== $data, 'at' => time(), 'h' => '' !== $data ? substr( sha1( $data ), 0, 10 ) : '', 'src' => $src );
+		if ( '' !== $data ) {
+			file_put_contents( $cache, $data );
+		} elseif ( is_file( $cache ) ) {
+			@unlink( $cache );
+		}
+		$idx         = $this->media_index();
+		$idx[ $key ] = $e;
+		$this->write_json( $dir . '/index.json', $idx );
+		return $e;
+	}
+
+	/**
+	 * Yeni yayınlanan sürümlerin medyasını hemen çeker (webhook'tan sonra), böylece katalog ilk istekte
+	 * içerik özetli adres verir. Süre sınırlı; yetişmeyen dosya ilk istekte çekilir.
+	 */
+	public function warm_media( int $budget = 20 ): int {
+		$until = time() + $budget;
+		$n     = 0;
+		$best  = array(); // her paketin yalnız en yeni kararlı sürümü
+		foreach ( $this->releases() as $r ) {
+			if ( ! empty( $r['asset_id'] ) && empty( $r['prerelease'] ) && ( ! isset( $best[ $r['slug'] ] ) || version_compare( $r['version'], $best[ $r['slug'] ]['version'], '>' ) ) ) {
+				$best[ $r['slug'] ] = $r;
+			}
+		}
+		foreach ( $best as $r ) {
+			foreach ( array_keys( self::MEDIA ) as $file ) {
+				if ( time() >= $until ) {
+					return $n;
+				}
+				$e = $this->media_index()[ $r['slug'] . '|' . $r['version'] . '|' . $file ] ?? null;
+				if ( self::media_stale( $e ) ) {
+					try {
+						$this->media_refresh( $r['slug'], $r['version'], $file );
+						++$n;
+					} catch ( \Throwable $ex ) {
+						continue;
+					}
+				}
+			}
+		}
+		return $n;
+	}
+
+	/** GET /v1/media/<slug>/<sürüm>/<dosya>?t=<imza>[&h=<içerik özeti>] */
 	private function route_media( string $slug, string $version, string $file, string $token ): void {
 		if ( ! isset( self::MEDIA[ $file ] ) || ! hash_equals( $this->media_token( $slug, $version ), $token ) ) {
 			throw new HttpError( 'Not found', 404 );
 		}
 		$dir   = $this->data_dir . '/media';
 		$cache = $dir . '/' . $slug . '-' . preg_replace( '/[^0-9A-Za-z.+-]/', '', $version ) . '-' . $file;
-		if ( ! is_file( $cache ) ) {
-			if ( ! is_dir( $dir ) ) {
-				mkdir( $dir, 0750, true );
-			}
-			$idx = $this->media_index();
-			$key = $slug . '|' . $version . '|' . $file;
-			$was = $idx[ $key ] ?? null;
-			if ( is_int( $was ) && time() - $was <= self::MEDIA_MISS_TTL ) {
-				throw new HttpError( 'Not found', 404 );
-			}
-			$data        = $this->find_media( $slug, $version, $file );
-			$idx         = $this->media_index();
-			$idx[ $key ] = '' !== $data ? true : time();
-			$this->write_json( $dir . '/index.json', $idx );
-			if ( '' === $data ) {
-				throw new HttpError( 'Not found', 404 );
-			}
-			file_put_contents( $cache, $data );
+		$e     = $this->media_refresh( $slug, $version, $file );
+		if ( ! $e['ok'] || ! is_file( $cache ) ) {
+			header( 'Cache-Control: no-store' );
+			throw new HttpError( 'Not found', 404 );
 		}
+		// Adresteki özet güncelse içerik o adreste hiç değişmez; değilse (eski ya da özetsiz adres) kısa önbellek.
+		$fixed = '' !== $e['h'] && hash_equals( (string) $e['h'], (string) ( $_GET['h'] ?? '' ) );
 		header( 'Content-Type: ' . self::MEDIA[ $file ][0] );
 		header( 'Content-Length: ' . filesize( $cache ) );
-		header( 'Cache-Control: public, max-age=31536000, immutable' );
+		header( 'Cache-Control: public, ' . ( $fixed ? 'max-age=31536000, immutable' : 'max-age=' . self::MEDIA_RECHECK ) );
+		header( 'ETag: "' . $e['h'] . '"' );
 		header( "Content-Security-Policy: default-src 'none'; style-src 'unsafe-inline'; sandbox" );
 		header( 'X-Content-Type-Options: nosniff' );
 		header( 'Access-Control-Allow-Origin: *' );
 		readfile( $cache );
 	}
 
-	/** Dosyayı önce release zip'inden, yoksa paketin deposundan (release tag'i) okur. Bulunamazsa boş metin. */
-	private function find_media( string $slug, string $version, string $file ): string {
+	/**
+	 * Dosyayı önce release zip'inden, yoksa paketin deposundan (release tag'i, sonra varsayılan dal) okur.
+	 * Bulunamazsa boş metin. $src: zip | tag | branch.
+	 */
+	private function find_media( string $slug, string $version, string $file, string &$src = '' ): string {
 		$release = null;
 		foreach ( $this->releases() as $r ) {
 			if ( $r['slug'] === $slug && $r['version'] === $version && $r['asset_id'] ) {
@@ -547,6 +620,7 @@ final class Server {
 					$data = $zip->getFromName( $slug . '/' . $n );
 					if ( is_string( $data ) && $ok( $data ) ) {
 						$zip->close();
+						$src = 'zip';
 						return $data;
 					}
 				}
@@ -565,6 +639,7 @@ final class Server {
 						continue;
 					}
 					if ( $ok( $data ) ) {
+						$src = '' === $ref ? 'branch' : 'tag';
 						return $data;
 					}
 				}
@@ -966,6 +1041,16 @@ final class Server {
 		@unlink( $this->data_dir . '/fluxapp-releases.json' );
 		$this->log( 'webhook', (string) ( $_SERVER['HTTP_X_GITHUB_EVENT'] ?? '' ) );
 		$this->json( array( 'ok' => true, 'flushed' => true ) );
+		// Yanıt gitti; yeni sürümlerin ikon ve görsellerini şimdi çek.
+		if ( function_exists( 'fastcgi_finish_request' ) ) {
+			fastcgi_finish_request();
+		}
+		ignore_user_abort( true );
+		try {
+			$this->warm_media();
+		} catch ( \Throwable $e ) {
+			$this->log( 'media', $e->getMessage() );
+		}
 	}
 
 	/** Sitelerin son bildirdiği durum (sites.json): hash => {...}. */
