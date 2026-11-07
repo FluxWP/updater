@@ -111,6 +111,12 @@ function load_config( string $root ): array {
 	if ( isset( $panel['geo_mode'] ) && in_array( $panel['geo_mode'], array( 'off', 'deny', 'allow' ), true ) ) {
 		$config['geo_mode'] = $panel['geo_mode'];
 	}
+	// Sihirbazın eklenti ekranları (kategoriler, paket yerleri) yalnız panelden.
+	foreach ( array( 'categories', 'pkg_meta' ) as $k ) {
+		if ( isset( $panel[ $k ] ) && is_array( $panel[ $k ] ) ) {
+			$config[ $k ] = $panel[ $k ];
+		}
+	}
 	if ( isset( $panel['geo_countries'] ) && is_array( $panel['geo_countries'] ) ) {
 		$config['geo_countries'] = $panel['geo_countries'];
 	}
