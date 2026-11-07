@@ -94,7 +94,7 @@ IP adresi istatistiklere yazılmaz. `data/access.log` IP'yi yalnız hatalı anah
 1. /admin › **Updater Manager** › ad verip *Yönetici anahtarı üret*. Anahtar (`flxm_…`) bir kez gösterilir; yalnız sha256 özeti saklanır (`data/settings.json` içinde `manager_keys`).
 2. WordPress sitesinde: Updater Manager › Bağlantı, sunucu adresi + yönetici anahtarı, *Kaydet ve bağlan*.
 
-Anahtar tüm ayarlara ve istatistiklere erişir; yönetici parolası oturumu, yönetici anahtarı üretme ve ülke veritabanı yükleme /admin'de kalır. /admin'de anahtarı silince erişim hemen kesilir. Anahtarla yapılan işlemler `data/access.log`'a `manager:<ad>` olarak yazılır. Yönetici API'si acil durdurmada da çalışır, ülke kuralına takılmaz.
+Anahtar tüm ayarlara ve istatistiklere erişir; yönetici anahtarı üretme ve ülke veritabanı dosyası yükleme /admin'de kalır. /admin'de anahtarı silince erişim hemen kesilir. Anahtarla yapılan işlemler `data/access.log`'a `manager:<ad>` olarak yazılır. Yönetici API'si acil durdurmada da çalışır, ülke kuralına takılmaz.
 
 ### Site adresi ve ülke (1.10.2)
 

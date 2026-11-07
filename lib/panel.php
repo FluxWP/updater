@@ -91,7 +91,9 @@ final class Panel {
 		if ( isset( $msgs[ $r['msg'] ] ) && 'err' === $msgs[ $r['msg'] ][1] ) {
 			$err = true;
 		}
-		if ( '' === $text && ! empty( $r['args']['new_key'] ) ) {
+		if ( '' === $text && ! empty( $r['args']['issued'] ) ) {
+			$text = __( 'Anahtar verildi: site bir sonraki güncelleme kontrolünde kendiliğinden alır. Şimdi erişimini seçin.' );
+		} elseif ( '' === $text && ! empty( $r['args']['new_key'] ) ) {
 			$text = __( 'Site anahtarı üretildi. Bir daha gösterilmez; şimdi kopyalayın.' );
 		}
 		$this->notice = '';
@@ -1327,7 +1329,7 @@ var L = <?php echo json_encode( array(
 		?>
 		<div class="card" id="manager">
 			<h2><?php echo __( 'Updater Manager (yönetici anahtarı)' ); ?></h2>
-			<p class="small muted"><?php echo __( 'Bu sunucuyu bir WordPress sitesinden yönetmek için: o sitede <b>Flux Updater Manager</b> eklentisini kurun, sunucu adresini ve buradaki yönetici anahtarını girin. Anahtar bu paneldeki tüm ayarlara ve istatistiklere erişir (parola, yönetici anahtarı üretme ve dosya yükleme hariç); güvenli saklayın.' ); ?></p>
+			<p class="small muted"><?php echo __( 'Bu sunucuyu bir WordPress sitesinden yönetmek için: o sitede <b>Flux Updater Manager</b> eklentisini kurun, sunucu adresini ve buradaki yönetici anahtarını girin. Anahtar bu paneldeki tüm ayarlara ve istatistiklere erişir (yönetici anahtarı üretme ve ülke veritabanı dosyası yükleme hariç); güvenli saklayın.' ); ?></p>
 			<?php if ( ! empty( $args['new_manager_key'] ) ) : ?>
 				<p><?php echo __( '<b>Bu anahtar bir daha gösterilmez.</b> Şimdi kopyalayıp Updater Manager ayarlarına yapıştırın. Sunucu adresi:' ); ?></p>
 				<pre><?php echo $e( $this->server->base_url() ); ?></pre>
