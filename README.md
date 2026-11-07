@@ -72,7 +72,7 @@ To upgrade, extract the new zip over the old one. Settings live in `data/setting
 
 ### Setup wizard (1.13.0)
 
-The server decides how FluxWP Panel's setup wizard lists plugins. `/v1/check` returns the categories (key, order, name and description in TR/EN) and, for every package, `category`, `order`, `rec` (recommended), a short `desc` (TR/EN) and `icons` (`svg`, `pastel`). Edit them in /admin › Packages and /admin › Categories; until you save, built-in defaults are used. Private packages never appear in the wizard. Icons are read from the package's own zip (`assets/icon.svg`, `assets/icon-pastel.svg`) and served from signed URLs.
+The server decides how FluxWP Panel's setup wizard lists plugins. `/v1/check` returns the categories (key, order, name and description in TR/EN) and, for every package, `category`, `order`, `rec` (recommended), a short `desc` (TR/EN) `icons` (`svg`, `pastel`) and wizard screenshots `shots` (`tr`, `en`). Edit them in /admin › Packages and /admin › Categories; until you save, built-in defaults are used. Private packages never appear in the wizard. Media is read once per version and cached: icons from the package's zip (`assets/icon.svg`, `assets/icon-pastel.svg`), wizard screenshots from the package folder in its repository at the release tag (`docs/wizard-tr.jpg`, `docs/wizard-en.jpg`). The site gets signed URLs; nothing is bundled in FluxWP Panel.
 
 ### Zip storage
 
@@ -133,7 +133,7 @@ Every update check records the site address (scheme + host, plus subdirectory; n
 | `GET /v1/fluxapp/<brand>/download/<macos\|windows\|windows-msi>` | public; stable link, 302 to the latest installer (for download buttons) |
 | `GET /v1/fluxapp/<brand>/tauri/<target>/<arch>/<version>` | public; Tauri updater format (`darwin` → `.app.tar.gz`, `windows` → `setup.exe`), 204 if there is no newer version |
 | `GET /v1/fluxapp/download/<tag>/<file>` | public; 302 to the GitHub download URL |
-| `GET /v1/icon/<slug>/<version>/<default\|pastel>.svg?t=` | package icon from its release zip; the signed URL comes from `/v1/check` |
+| `GET /v1/media/<slug>/<version>/<file>?t=` | package icon (`icon.svg`, `icon-pastel.svg`) or wizard screenshot (`wizard-tr.jpg`, `wizard-en.jpg`); the signed URL comes from `/v1/check` |
 | `POST /v1/webhook` | signed with `X-Hub-Signature-256`; clears the release cache |
 | `GET /v1/admin/info\|overview\|resources\|settings\|repos` | manager key (`X-FluxWP-Manager-Key` or `Authorization: Bearer`); panel data as JSON, `?lang=tr\|en`, `overview?r=7\|30\|90` |
 | `POST /v1/admin/action` | manager key; runs a panel action, body `{"action":"save_switch","switch":"lockdown","on":"1"}` (same fields as the panel forms). Errors: 401 `manager_key_invalid`, 400 `action_denied`, 422 validation |

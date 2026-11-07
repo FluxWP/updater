@@ -126,8 +126,8 @@ final class Server {
 				$this->route_fluxapp_download_latest( $m[1], $m[2] );
 				return;
 			}
-			if ( preg_match( '#^/v1/icon/([a-z0-9][a-z0-9-]*)/([0-9][0-9A-Za-z.+-]*)/(default|pastel)\.svg$#', $path, $m ) ) {
-				$this->route_icon( $m[1], $m[2], $m[3], (string) ( $_GET['t'] ?? '' ) );
+			if ( preg_match( '#^/v1/media/([a-z0-9][a-z0-9-]*)/([0-9][0-9A-Za-z.+-]*)/([a-z0-9.-]+)$#', $path, $m ) ) {
+				$this->route_media( $m[1], $m[2], $m[3], (string) ( $_GET['t'] ?? '' ) );
 				return;
 			}
 			if ( '/v1/webhook' === $path && 'POST' === $method ) {
@@ -212,7 +212,7 @@ final class Server {
 				'size'         => $rel['size'],
 				'public'       => $this->is_public( $rel ),
 				'versions'     => $versions[ $slug ] ?? array(),
-			) + CatalogMeta::package( $this->config, $slug ) + array( 'icons' => $this->icon_urls( $rel ) );
+			) + CatalogMeta::package( $this->config, $slug ) + $this->media_urls( $rel );
 		}
 
 		if ( '' !== $site['hash'] ) {
@@ -413,11 +413,23 @@ final class Server {
 	}
 
 	/* ------------------------------------------------------------------ */
-	/* Paket ikonları: release zip'indeki assets/icon.svg, icon-pastel.svg  */
+	/* Paket medyası: ikon ve sihirbaz görseli. Önce paketin release zip'i, */
+	/* yoksa paketin deposu (release tag'inde docs/). Sürüm başına önbellek. */
 	/* ------------------------------------------------------------------ */
 
-	/** İkon adresini imzalayan gizli değer (ilk kullanımda üretilip panel ayarlarına yazılır). */
-	private function icon_secret(): string {
+	/**
+	 * Verilebilen medya: dosya adı => [içerik türü, zip içindeki adaylar, depodaki (paket klasörüne göre) adaylar].
+	 * Pastel ikon yoksa varsayılan ikon; dile özel görsel yoksa dilsiz görsel.
+	 */
+	const MEDIA = array(
+		'icon.svg'        => array( 'image/svg+xml', array( 'assets/icon.svg' ), array( 'assets/icon.svg', 'docs/logo.svg' ) ),
+		'icon-pastel.svg' => array( 'image/svg+xml', array( 'assets/icon-pastel.svg', 'assets/icon.svg' ), array( 'assets/icon-pastel.svg', 'assets/icon.svg', 'docs/logo.svg' ) ),
+		'wizard-tr.jpg'   => array( 'image/jpeg', array(), array( 'docs/wizard-tr.jpg', 'docs/wizard.jpg' ) ),
+		'wizard-en.jpg'   => array( 'image/jpeg', array(), array( 'docs/wizard-en.jpg', 'docs/wizard.jpg' ) ),
+	);
+
+	/** Medya adresini imzalayan gizli değer (ilk kullanımda üretilip panel ayarlarına yazılır). */
+	private function media_secret(): string {
 		$s = (string) ( Settings::load( $this->data_dir )['icon_secret'] ?? '' );
 		if ( '' === $s ) {
 			$s = bin2hex( random_bytes( 24 ) );
@@ -426,55 +438,67 @@ final class Server {
 		return $s;
 	}
 
-	private function icon_token( string $slug, string $version ): string {
-		return substr( hash_hmac( 'sha256', $slug . '|' . $version, $this->icon_secret() ), 0, 24 );
+	private function media_token( string $slug, string $version ): string {
+		return substr( hash_hmac( 'sha256', $slug . '|' . $version, $this->media_secret() ), 0, 24 );
 	}
 
-	/** Bilinen ikon durumu: "slug|version|style" => true (var) / false (yok). */
-	private function icon_index(): array {
-		return $this->read_json( $this->data_dir . '/icons/index.json' );
+	/** Bilinen medya durumu: "slug|sürüm|dosya" => true (var) / false (yok). */
+	private function media_index(): array {
+		return $this->read_json( $this->data_dir . '/media/index.json' );
+	}
+
+	private function media_url( array $rel, string $file ): string {
+		return $this->base_url() . '/v1/media/' . $rel['slug'] . '/' . rawurlencode( $rel['version'] ) . '/' . $file . '?t=' . $this->media_token( $rel['slug'], $rel['version'] );
 	}
 
 	/**
-	 * Katalogdaki paketin ikon adresleri. Adres imzalıdır: kataloğu alan site kullanabilir, private paketin
-	 * ikonu tahminle açılamaz. Zip'te olmadığı bilinen ikon verilmez.
+	 * Katalogdaki paketin medya adresleri: icons {svg, pastel}, shots {tr, en}. Adres imzalıdır: kataloğu alan
+	 * site kullanabilir, private paketin dosyası tahminle açılamaz. Bulunmadığı bilinen dosya verilmez.
 	 */
-	private function icon_urls( array $rel ): array {
-		if ( 'plugin' !== ( $rel['type'] ?? 'plugin' ) || empty( $rel['asset_id'] ) ) {
-			return array();
+	private function media_urls( array $rel ): array {
+		if ( empty( $rel['asset_id'] ) ) {
+			return array( 'icons' => array(), 'shots' => array() );
 		}
-		$idx = $this->icon_index();
-		$out = array();
-		foreach ( array( 'svg' => 'default', 'pastel' => 'pastel' ) as $k => $style ) {
-			if ( false === ( $idx[ $rel['slug'] . '|' . $rel['version'] . '|' . $style ] ?? null ) ) {
-				continue;
+		$idx  = $this->media_index();
+		$has  = function ( string $file ) use ( $idx, $rel ): bool {
+			return false !== ( $idx[ $rel['slug'] . '|' . $rel['version'] . '|' . $file ] ?? null );
+		};
+		$out = array( 'icons' => array(), 'shots' => array() );
+		foreach ( array( 'svg' => 'icon.svg', 'pastel' => 'icon-pastel.svg' ) as $k => $f ) {
+			if ( $has( $f ) ) {
+				$out['icons'][ $k ] = $this->media_url( $rel, $f );
 			}
-			$out[ $k ] = $this->base_url() . '/v1/icon/' . $rel['slug'] . '/' . rawurlencode( $rel['version'] ) . '/' . $style . '.svg?t=' . $this->icon_token( $rel['slug'], $rel['version'] );
+		}
+		foreach ( array( 'tr', 'en' ) as $l ) {
+			if ( $has( 'wizard-' . $l . '.jpg' ) ) {
+				$out['shots'][ $l ] = $this->media_url( $rel, 'wizard-' . $l . '.jpg' );
+			}
 		}
 		return $out;
 	}
 
-	/** GET /v1/icon/<slug>/<sürüm>/<default|pastel>.svg?t=<imza> */
-	private function route_icon( string $slug, string $version, string $style, string $token ): void {
-		if ( ! hash_equals( $this->icon_token( $slug, $version ), $token ) ) {
+	/** GET /v1/media/<slug>/<sürüm>/<dosya>?t=<imza> */
+	private function route_media( string $slug, string $version, string $file, string $token ): void {
+		if ( ! isset( self::MEDIA[ $file ] ) || ! hash_equals( $this->media_token( $slug, $version ), $token ) ) {
 			throw new HttpError( 'Not found', 404 );
 		}
-		$dir   = $this->data_dir . '/icons';
-		$cache = $dir . '/' . $slug . '-' . preg_replace( '/[^0-9A-Za-z.+-]/', '', $version ) . '-' . $style . '.svg';
+		$dir   = $this->data_dir . '/media';
+		$cache = $dir . '/' . $slug . '-' . preg_replace( '/[^0-9A-Za-z.+-]/', '', $version ) . '-' . $file;
 		if ( ! is_file( $cache ) ) {
-			$svg = $this->extract_icon( $slug, $version, $style );
-			$idx = $this->icon_index();
-			$idx[ $slug . '|' . $version . '|' . $style ] = '' !== $svg;
+			$data = $this->find_media( $slug, $version, $file );
 			if ( ! is_dir( $dir ) ) {
 				mkdir( $dir, 0750, true );
 			}
+			$idx = $this->media_index();
+			$idx[ $slug . '|' . $version . '|' . $file ] = '' !== $data;
 			$this->write_json( $dir . '/index.json', $idx );
-			if ( '' === $svg ) {
+			if ( '' === $data ) {
 				throw new HttpError( 'Not found', 404 );
 			}
-			file_put_contents( $cache, $svg );
+			file_put_contents( $cache, $data );
 		}
-		header( 'Content-Type: image/svg+xml' );
+		header( 'Content-Type: ' . self::MEDIA[ $file ][0] );
+		header( 'Content-Length: ' . filesize( $cache ) );
 		header( 'Cache-Control: public, max-age=31536000, immutable' );
 		header( "Content-Security-Policy: default-src 'none'; style-src 'unsafe-inline'; sandbox" );
 		header( 'X-Content-Type-Options: nosniff' );
@@ -482,8 +506,8 @@ final class Server {
 		readfile( $cache );
 	}
 
-	/** Release zip'inden ikon (pastel yoksa varsayılan). Bulunamazsa boş metin. */
-	private function extract_icon( string $slug, string $version, string $style ): string {
+	/** Dosyayı önce release zip'inden, yoksa paketin deposundan (release tag'i) okur. Bulunamazsa boş metin. */
+	private function find_media( string $slug, string $version, string $file ): string {
 		$release = null;
 		foreach ( $this->releases() as $r ) {
 			if ( $r['slug'] === $slug && $r['version'] === $version && $r['asset_id'] ) {
@@ -491,29 +515,49 @@ final class Server {
 				break;
 			}
 		}
-		if ( ! $release || ! class_exists( 'ZipArchive' ) ) {
+		if ( ! $release ) {
 			return '';
 		}
-		$file = $this->zip_path( $slug, $version );
-		if ( ! is_file( $file ) || filesize( $file ) !== (int) $release['size'] ) {
-			$this->fetch_asset( (string) $release['repo'], (int) $release['asset_id'], $file, ! empty( $release['public'] ) );
-		}
-		@touch( $file );
-		$zip = new \ZipArchive();
-		if ( true !== $zip->open( $file ) ) {
-			return '';
-		}
-		$names = 'pastel' === $style ? array( 'icon-pastel.svg', 'icon.svg' ) : array( 'icon.svg' );
-		$svg   = '';
-		foreach ( $names as $n ) {
-			$s = $zip->getFromName( $slug . '/assets/' . $n );
-			if ( is_string( $s ) && strlen( $s ) < 262144 && false !== stripos( $s, '<svg' ) ) {
-				$svg = $s;
-				break;
+		list( $type, $in_zip, $in_repo ) = self::MEDIA[ $file ];
+		$ok = static function ( string $data ) use ( $type ): bool {
+			if ( '' === $data || strlen( $data ) > 2097152 ) {
+				return false;
+			}
+			return 'image/svg+xml' === $type ? false !== stripos( $data, '<svg' ) : "\xFF\xD8" === substr( $data, 0, 2 );
+		};
+		if ( $in_zip && class_exists( 'ZipArchive' ) ) {
+			$zipf = $this->zip_path( $slug, $version );
+			if ( ! is_file( $zipf ) || filesize( $zipf ) !== (int) $release['size'] ) {
+				$this->fetch_asset( (string) $release['repo'], (int) $release['asset_id'], $zipf, ! empty( $release['public'] ) );
+			}
+			@touch( $zipf );
+			$zip = new \ZipArchive();
+			if ( true === $zip->open( $zipf ) ) {
+				foreach ( $in_zip as $n ) {
+					$data = $zip->getFromName( $slug . '/' . $n );
+					if ( is_string( $data ) && $ok( $data ) ) {
+						$zip->close();
+						return $data;
+					}
+				}
+				$zip->close();
 			}
 		}
-		$zip->close();
-		return $svg;
+		// Depo: tek depoda çok paket (plugins/<slug>, themes/<slug>) ya da kökte tek paket.
+		$tag = rawurlencode( (string) ( $release['tag'] ?? ( $slug . '-v' . $version ) ) );
+		foreach ( $in_repo as $n ) {
+			foreach ( array( 'plugins/' . $slug . '/', 'themes/' . $slug . '/', '' ) as $base ) {
+				try {
+					$data = $this->github( '/repos/' . $release['repo'] . '/contents/' . $base . $n . '?ref=' . $tag, 'application/vnd.github.raw', null, empty( $release['public'] ) );
+				} catch ( \Throwable $e ) {
+					continue;
+				}
+				if ( $ok( $data ) ) {
+					return $data;
+				}
+			}
+		}
+		return '';
 	}
 
 	private function zip_path( string $slug, string $version ): string {
