@@ -9,7 +9,7 @@
 
 namespace FLXUpdate;
 
-const VERSION = '1.12.0';
+const VERSION = '1.12.1';
 const DAY_SECONDS = 86400;
 
 class HttpError extends \Exception {
@@ -79,7 +79,7 @@ final class Server {
 				);
 				return;
 			}
-			// Yönetici API'si (Updater Manager): acil durdurma ve ülke kuralından bağımsız, yönetici anahtarıyla.
+			// Yönetici API'si: acil durdurma ve ülke kuralından bağımsız, yönetici anahtarıyla.
 			if ( 0 === strpos( $path, '/v1/admin/' ) ) {
 				( new AdminApi( $this, $this->config ) )->handle( $method, substr( $path, 10 ) );
 				return;
@@ -1364,7 +1364,7 @@ final class Server {
 		$cache = $this->read_json( $file );
 		$sig   = md5( json_encode( $this->repos() ) );
 		if ( isset( $cache['at'], $cache['items'] ) && ( $cache['sig'] ?? '' ) === $sig && time() - (int) $cache['at'] < (int) $this->config['cache_ttl'] ) {
-			return $cache['items'];
+			return self::drop_shadowed( (array) $cache['items'] );
 		}
 
 		$items  = array();
@@ -1407,7 +1407,35 @@ final class Server {
 		}
 
 		$this->write_json( $file, array( 'at' => time(), 'sig' => $sig, 'items' => $items, 'errors' => $errors ) );
-		return $items;
+		return self::drop_shadowed( $items );
+	}
+
+	/**
+	 * Bir paket private depoya taşındıysa public depoda kalan eski release'leri yok sayılır:
+	 * paket anahtarsız inmez, yalnız private kopyası (anahtara tanımlıysa) dağıtılır.
+	 * Anahtarsız açmak için slug "Herkese açık paketler" listesine yazılır.
+	 *
+	 * @param array[] $items releases() öğeleri
+	 * @return array[]
+	 */
+	public static function drop_shadowed( array $items ): array {
+		$private = array();
+		foreach ( $items as $r ) {
+			if ( is_array( $r ) && empty( $r['public'] ) && isset( $r['slug'] ) ) {
+				$private[ (string) $r['slug'] ] = true;
+			}
+		}
+		if ( ! $private ) {
+			return $items;
+		}
+		return array_values(
+			array_filter(
+				$items,
+				static function ( $r ) use ( $private ) {
+					return ! ( is_array( $r ) && ! empty( $r['public'] ) && isset( $private[ (string) ( $r['slug'] ?? '' ) ] ) );
+				}
+			)
+		);
 	}
 
 	/** Son okumada hata veren depolar: repo => hata. */

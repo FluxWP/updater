@@ -21,5 +21,7 @@ jobs:
         run: find lib tests -name '*.php' -print0 | xargs -0 -n1 php -l
       - name: Desktop source configuration regression
         run: php tests/desktop-repository.php
-      - name: Admin API (Updater Manager)
+      - name: Admin API
         run: php tests/admin-api.php
+      - name: Private package move regression
+        run: php tests/private-move.php

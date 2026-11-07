@@ -1,5 +1,5 @@
 <?php
-// Updater Manager admin API: key check, panel actions over JSON, denied actions.
+// Admin API: key check, panel actions over JSON, denied actions.
 require_once __DIR__ . '/../lib/config.php';
 require_once __DIR__ . '/../lib/settings.php';
 require_once __DIR__ . '/../lib/i18n.php';
