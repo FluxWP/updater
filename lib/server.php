@@ -422,8 +422,8 @@ final class Server {
 	 * Pastel ikon yoksa varsayılan ikon; dile özel görsel yoksa dilsiz görsel.
 	 */
 	const MEDIA = array(
-		'icon.svg'        => array( 'image/svg+xml', array( 'assets/icon.svg' ), array( 'assets/icon.svg', 'docs/logo.svg' ) ),
-		'icon-pastel.svg' => array( 'image/svg+xml', array( 'assets/icon-pastel.svg', 'assets/icon.svg' ), array( 'assets/icon-pastel.svg', 'assets/icon.svg', 'docs/logo.svg' ) ),
+		'icon.svg'        => array( 'image/svg+xml', array( 'assets/icon.svg' ), array( 'assets/icon.svg', 'docs/icon.svg', 'docs/logo.svg' ) ),
+		'icon-pastel.svg' => array( 'image/svg+xml', array( 'assets/icon-pastel.svg', 'assets/icon.svg' ), array( 'assets/icon-pastel.svg', 'docs/icon-pastel.svg', 'assets/icon.svg', 'docs/icon.svg', 'docs/logo.svg' ) ),
 		'wizard-tr.jpg'   => array( 'image/jpeg', array(), array( 'docs/wizard-tr.jpg', 'docs/wizard.jpg' ) ),
 		'wizard-en.jpg'   => array( 'image/jpeg', array(), array( 'docs/wizard-en.jpg', 'docs/wizard.jpg' ) ),
 	);
