@@ -70,7 +70,7 @@ Güncellemek için yeni zip'i üstüne açın. Ayarlar zip'te olmayan `data/sett
 - `/v1/check` her paket için `requires_plugins` döndürür (`Requires Plugins:` başlığı); FluxWP Panel eksik eklentileri birlikte kurar.
 - Sürümünde `-` olan (ör. `1.3.0-beta.1`) yalnız beta kanalında görünür.
 
-### Kurulum sihirbazı (1.11.0)
+### Kurulum sihirbazı (1.12.1)
 
 FluxWP Panel'in kurulum sihirbazındaki eklenti listesini sunucu belirler. `/v1/check` kategorileri (anahtar, sıra, TR/EN ad ve açıklama) ve her paket için `category`, `order`, `rec` (önerilen), kısa `desc` (TR/EN) ve `icons` (`svg`, `pastel`) döndürür. /admin › Paketler ve /admin › Kategoriler'den düzenlenir; kaydedilene kadar yerleşik varsayılanlar kullanılır. Private paketler sihirbazda hiç görünmez. İkonlar paketin kendi zip'inden (`assets/icon.svg`, `assets/icon-pastel.svg`) okunur, imzalı adresten verilir.
 
@@ -90,6 +90,15 @@ Her `/v1/check` isteğinde kurulu FluxWP paketleri ve sürümleri, FluxWP Panel 
 FluxWP Panel 1.0.8+ site adresini, WordPress ve PHP sürümünü, saat dilimini ve dili yalnız yönetici izin verdiyse ekler (kurulum sihirbazında ya da FluxWP Panel › Ayarlar'da "Ürünü geliştirmemize yardımcı olun"); izin yoksa `"usage": false` gönderir. İzin yokken sunucu bunların hiçbirini saklamaz ve siteyi kurulum kimliğiyle tanır. Ülke kodu izinden bağımsız olarak isteğin IP'sinden çıkarılır (IP saklanmaz). İzni geri alan sitenin adresli eski kaydı bir sonraki denetimde birleştirilip silinir. `usage` alanı göndermeyen eski istemciler izinli sayılır.
 
 IP adresi istatistiklere yazılmaz. `data/access.log` IP'yi yalnız hatalı anahtar denemelerinde (güvenlik) tutar, 90 günden eski satırları siler. Günlük sayaçlar 120 gün, site kayıtları son denetimden sonra 180 gün saklanır.
+
+### WordPress'ten yönetim: Updater Manager (1.12.0)
+
+**Flux Updater Manager** eklentisi (FluxWP deposu, `flx-updater-manager`) bu paneli bir WordPress yönetim ekranında gösterir: genel bakış, ülkeler, bağlanan siteler (anahtar ver), anahtarlı siteler (ekle, erişimi düzenle, pasif yap, sil, test et), paketler, GitHub, anında yayın, güvenlik anahtarları ve ülke erişimi, dosyalar ve kaynaklar.
+
+1. /admin › **Updater Manager** › ad verip *Yönetici anahtarı üret*. Anahtar (`flxm_…`) bir kez gösterilir; yalnız sha256 özeti saklanır (`data/settings.json` içinde `manager_keys`).
+2. WordPress sitesinde: Updater Manager › Bağlantı, sunucu adresi + yönetici anahtarı, *Kaydet ve bağlan*.
+
+Anahtar tüm ayarlara ve istatistiklere erişir; yönetici anahtarı üretme ve ülke veritabanı dosyası yükleme /admin'de kalır. /admin'de anahtarı silince erişim hemen kesilir. Anahtarla yapılan işlemler `data/access.log`'a `manager:<ad>` olarak yazılır. Yönetici API'si acil durdurmada da çalışır, ülke kuralına takılmaz.
 
 ### Site adresi ve ülke (1.10.2)
 
@@ -119,6 +128,9 @@ Her güncelleme denetimi, kullanım verisi izninden bağımsız olarak site adre
 | `GET /v1/fluxapp/download/<tag>/<dosya>` | herkese açık; GitHub indirme adresine 302 |
 | `GET /v1/icon/<slug>/<sürüm>/<default\|pastel>.svg?t=` | paketin release zip'indeki ikon; imzalı adres `/v1/check`'ten gelir |
 | `POST /v1/webhook` | `X-Hub-Signature-256` imzalı; release önbelleğini boşaltır |
+| `GET /v1/admin/info\|overview\|resources\|settings\|repos` | yönetici anahtarı (`X-FluxWP-Manager-Key` ya da `Authorization: Bearer`); panel verisi JSON, `?lang=tr\|en`, `overview?r=7\|30\|90` |
+| `POST /v1/admin/action` | yönetici anahtarı; panel işlemi çalıştırır, gövde `{"action":"save_switch","switch":"lockdown","on":"1"}` (panel formlarıyla aynı alanlar). Hatalar: 401 `manager_key_invalid`, 400 `action_denied`, 422 doğrulama |
+| `POST /v1/admin/test-key` | yönetici anahtarı; `{"key":"flxu_…"}` → geçerli mi, aktif mi, görünen paketler |
 | `GET /admin` | yönetim paneli (`/status` buraya yönlenir) |
 
 ## Docker / Coolify (isteğe bağlı)

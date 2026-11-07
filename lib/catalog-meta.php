@@ -31,6 +31,7 @@ final class CatalogMeta {
 		'flx-crm'          => array( 'contact', 5, true, array( 'tr' => 'Bağışçı, müşteri ve gönüllüler tek kişi kartında; segment ve kampanya.', 'en' => 'Donors, customers and volunteers on one contact card, with segments and campaigns.' ) ),
 		'flx-chatbot'      => array( 'contact', 15, false, array( 'tr' => 'Sitede AI sohbet penceresi ve canlı destek.', 'en' => 'AI chat window and live support on your site.' ) ),
 		'flx-recaptcha'    => array( 'system', 30, false, array( 'tr' => 'Giriş, yorum, bağış ve form gönderimlerinde reCAPTCHA.', 'en' => 'reCAPTCHA on login, comments, donations and form submissions.' ) ),
+		'flx-updater-manager' => array( 'system', 40, false, array( 'tr' => 'Güncelleme sunucusunu WordPress panelinden yönetin: ayarlar, anahtarlar ve istatistikler.', 'en' => 'Manage the update server from WordPress: settings, keys and statistics.' ) ),
 		'flx-wiki'         => array( 'grow', 50, false, array( 'tr' => 'Sitede Markdown wiki: sayfa ağacı, arama, SEO ve LLM dostu.', 'en' => 'A Markdown wiki on your site: page tree, search, SEO and LLM friendly.' ) ),
 		'flx-chat'         => array( 'contact', 10, true, array( 'tr' => 'WhatsApp gelen kutusu, hazır cevaplar ve AI asistan.', 'en' => 'WhatsApp inbox, canned replies and an AI assistant.' ) ),
 		'flx-forms'        => array( 'contact', 20, true, array( 'tr' => 'Sürükle-bırak form, ödeme alanı ve otomasyon.', 'en' => 'Drag-and-drop forms with payments and automations.' ) ),

@@ -11,6 +11,7 @@ require __DIR__ . '/lib/catalog-meta.php';
 require __DIR__ . '/lib/stats.php';
 require __DIR__ . '/lib/geo.php';
 require __DIR__ . '/lib/panel.php';
+require __DIR__ . '/lib/admin-api.php';
 
 $flx_config = FLXUpdate\load_config( __DIR__ );
 $flx_path   = (string) parse_url( $_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH );
