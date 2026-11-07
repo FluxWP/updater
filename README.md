@@ -70,6 +70,10 @@ To upgrade, extract the new zip over the old one. Settings live in `data/setting
 - `/v1/check` returns `requires_plugins` for every package (the `Requires Plugins:` header), so FluxWP Panel can install missing plugins together.
 - A version containing `-` (e.g. `1.3.0-beta.1`) is visible only on the beta channel.
 
+### Setup wizard (1.11.0)
+
+The server decides how FluxWP Panel's setup wizard lists plugins. `/v1/check` returns the categories (key, order, name and description in TR/EN) and, for every package, `category`, `order`, `rec` (recommended), a short `desc` (TR/EN) and `icons` (`svg`, `pastel`). Edit them in /admin › Packages and /admin › Categories; until you save, built-in defaults are used. Private packages never appear in the wizard. Icons are read from the package's own zip (`assets/icon.svg`, `assets/icon-pastel.svg`) and served from signed URLs.
+
 ### Zip storage
 
 `data/zips` keeps the last 5 versions of each package. An older version is fetched from the GitHub release again and deleted 24 hours after its last download. Cleanup runs after each download and once an hour; the limits are in /admin › Files. Nothing is deleted while GitHub is unreachable.
@@ -116,6 +120,7 @@ Every update check records the site address (scheme + host, plus subdirectory; n
 | `GET /v1/fluxapp/<brand>/download/<macos\|windows\|windows-msi>` | public; stable link, 302 to the latest installer (for download buttons) |
 | `GET /v1/fluxapp/<brand>/tauri/<target>/<arch>/<version>` | public; Tauri updater format (`darwin` → `.app.tar.gz`, `windows` → `setup.exe`), 204 if there is no newer version |
 | `GET /v1/fluxapp/download/<tag>/<file>` | public; 302 to the GitHub download URL |
+| `GET /v1/icon/<slug>/<version>/<default\|pastel>.svg?t=` | package icon from its release zip; the signed URL comes from `/v1/check` |
 | `POST /v1/webhook` | signed with `X-Hub-Signature-256`; clears the release cache |
 | `GET /admin` | admin panel (`/status` redirects here) |
 

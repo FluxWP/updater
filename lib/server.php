@@ -9,7 +9,7 @@
 
 namespace FLXUpdate;
 
-const VERSION = '1.10.2';
+const VERSION = '1.11.0';
 const DAY_SECONDS = 86400;
 
 class HttpError extends \Exception {
@@ -121,6 +121,10 @@ final class Server {
 				$this->route_fluxapp_download_latest( $m[1], $m[2] );
 				return;
 			}
+			if ( preg_match( '#^/v1/icon/([a-z0-9][a-z0-9-]*)/([0-9][0-9A-Za-z.+-]*)/(default|pastel)\.svg$#', $path, $m ) ) {
+				$this->route_icon( $m[1], $m[2], $m[3], (string) ( $_GET['t'] ?? '' ) );
+				return;
+			}
 			if ( '/v1/webhook' === $path && 'POST' === $method ) {
 				$this->route_webhook();
 				return;
@@ -203,7 +207,7 @@ final class Server {
 				'size'         => $rel['size'],
 				'public'       => $this->is_public( $rel ),
 				'versions'     => $versions[ $slug ] ?? array(),
-			);
+			) + CatalogMeta::package( $this->config, $slug ) + array( 'icons' => $this->icon_urls( $rel ) );
 		}
 
 		if ( '' !== $site['hash'] ) {
@@ -213,7 +217,7 @@ final class Server {
 			}
 		}
 		$this->stats()->record_check( $site, $body, $this->request_country() );
-		$res = array( 'ok' => true, 'site' => $site['name'], 'public' => ! empty( $site['anon'] ), 'packages' => $out );
+		$res = array( 'ok' => true, 'site' => $site['name'], 'public' => ! empty( $site['anon'] ), 'packages' => $out, 'categories' => CatalogMeta::categories( $this->config ) );
 		if ( ! empty( $site['disabled'] ) ) {
 			$res['key_disabled'] = true;
 		}
@@ -401,6 +405,110 @@ final class Server {
 			$out['bytes'] += (int) @filesize( $f );
 		}
 		return $out;
+	}
+
+	/* ------------------------------------------------------------------ */
+	/* Paket ikonları: release zip'indeki assets/icon.svg, icon-pastel.svg  */
+	/* ------------------------------------------------------------------ */
+
+	/** İkon adresini imzalayan gizli değer (ilk kullanımda üretilip panel ayarlarına yazılır). */
+	private function icon_secret(): string {
+		$s = (string) ( Settings::load( $this->data_dir )['icon_secret'] ?? '' );
+		if ( '' === $s ) {
+			$s = bin2hex( random_bytes( 24 ) );
+			Settings::update( $this->data_dir, array( 'icon_secret' => $s ) );
+		}
+		return $s;
+	}
+
+	private function icon_token( string $slug, string $version ): string {
+		return substr( hash_hmac( 'sha256', $slug . '|' . $version, $this->icon_secret() ), 0, 24 );
+	}
+
+	/** Bilinen ikon durumu: "slug|version|style" => true (var) / false (yok). */
+	private function icon_index(): array {
+		return $this->read_json( $this->data_dir . '/icons/index.json' );
+	}
+
+	/**
+	 * Katalogdaki paketin ikon adresleri. Adres imzalıdır: kataloğu alan site kullanabilir, private paketin
+	 * ikonu tahminle açılamaz. Zip'te olmadığı bilinen ikon verilmez.
+	 */
+	private function icon_urls( array $rel ): array {
+		if ( 'plugin' !== ( $rel['type'] ?? 'plugin' ) || empty( $rel['asset_id'] ) ) {
+			return array();
+		}
+		$idx = $this->icon_index();
+		$out = array();
+		foreach ( array( 'svg' => 'default', 'pastel' => 'pastel' ) as $k => $style ) {
+			if ( false === ( $idx[ $rel['slug'] . '|' . $rel['version'] . '|' . $style ] ?? null ) ) {
+				continue;
+			}
+			$out[ $k ] = $this->base_url() . '/v1/icon/' . $rel['slug'] . '/' . rawurlencode( $rel['version'] ) . '/' . $style . '.svg?t=' . $this->icon_token( $rel['slug'], $rel['version'] );
+		}
+		return $out;
+	}
+
+	/** GET /v1/icon/<slug>/<sürüm>/<default|pastel>.svg?t=<imza> */
+	private function route_icon( string $slug, string $version, string $style, string $token ): void {
+		if ( ! hash_equals( $this->icon_token( $slug, $version ), $token ) ) {
+			throw new HttpError( 'Not found', 404 );
+		}
+		$dir   = $this->data_dir . '/icons';
+		$cache = $dir . '/' . $slug . '-' . preg_replace( '/[^0-9A-Za-z.+-]/', '', $version ) . '-' . $style . '.svg';
+		if ( ! is_file( $cache ) ) {
+			$svg = $this->extract_icon( $slug, $version, $style );
+			$idx = $this->icon_index();
+			$idx[ $slug . '|' . $version . '|' . $style ] = '' !== $svg;
+			if ( ! is_dir( $dir ) ) {
+				mkdir( $dir, 0750, true );
+			}
+			$this->write_json( $dir . '/index.json', $idx );
+			if ( '' === $svg ) {
+				throw new HttpError( 'Not found', 404 );
+			}
+			file_put_contents( $cache, $svg );
+		}
+		header( 'Content-Type: image/svg+xml' );
+		header( 'Cache-Control: public, max-age=31536000, immutable' );
+		header( "Content-Security-Policy: default-src 'none'; style-src 'unsafe-inline'; sandbox" );
+		header( 'X-Content-Type-Options: nosniff' );
+		header( 'Access-Control-Allow-Origin: *' );
+		readfile( $cache );
+	}
+
+	/** Release zip'inden ikon (pastel yoksa varsayılan). Bulunamazsa boş metin. */
+	private function extract_icon( string $slug, string $version, string $style ): string {
+		$release = null;
+		foreach ( $this->releases() as $r ) {
+			if ( $r['slug'] === $slug && $r['version'] === $version && $r['asset_id'] ) {
+				$release = $r;
+				break;
+			}
+		}
+		if ( ! $release || ! class_exists( 'ZipArchive' ) ) {
+			return '';
+		}
+		$file = $this->zip_path( $slug, $version );
+		if ( ! is_file( $file ) || filesize( $file ) !== (int) $release['size'] ) {
+			$this->fetch_asset( (string) $release['repo'], (int) $release['asset_id'], $file, ! empty( $release['public'] ) );
+		}
+		@touch( $file );
+		$zip = new \ZipArchive();
+		if ( true !== $zip->open( $file ) ) {
+			return '';
+		}
+		$names = 'pastel' === $style ? array( 'icon-pastel.svg', 'icon.svg' ) : array( 'icon.svg' );
+		$svg   = '';
+		foreach ( $names as $n ) {
+			$s = $zip->getFromName( $slug . '/assets/' . $n );
+			if ( is_string( $s ) && strlen( $s ) < 262144 && false !== stripos( $s, '<svg' ) ) {
+				$svg = $s;
+				break;
+			}
+		}
+		$zip->close();
+		return $svg;
 	}
 
 	private function zip_path( string $slug, string $version ): string {

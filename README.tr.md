@@ -70,6 +70,10 @@ Güncellemek için yeni zip'i üstüne açın. Ayarlar zip'te olmayan `data/sett
 - `/v1/check` her paket için `requires_plugins` döndürür (`Requires Plugins:` başlığı); FluxWP Panel eksik eklentileri birlikte kurar.
 - Sürümünde `-` olan (ör. `1.3.0-beta.1`) yalnız beta kanalında görünür.
 
+### Kurulum sihirbazı (1.11.0)
+
+FluxWP Panel'in kurulum sihirbazındaki eklenti listesini sunucu belirler. `/v1/check` kategorileri (anahtar, sıra, TR/EN ad ve açıklama) ve her paket için `category`, `order`, `rec` (önerilen), kısa `desc` (TR/EN) ve `icons` (`svg`, `pastel`) döndürür. /admin › Paketler ve /admin › Kategoriler'den düzenlenir; kaydedilene kadar yerleşik varsayılanlar kullanılır. Private paketler sihirbazda hiç görünmez. İkonlar paketin kendi zip'inden (`assets/icon.svg`, `assets/icon-pastel.svg`) okunur, imzalı adresten verilir.
+
 ### Zip saklama
 
 `data/zips` paket başına son 5 sürümü tutar. Daha eski sürüm istenirse GitHub release'ten yeniden alınır ve son indirmeden 24 saat sonra silinir. Temizlik her indirmeden sonra ve saatte bir çalışır; sınırlar /admin › Dosyalar'da. GitHub okunamazken hiçbir dosya silinmez.
@@ -113,6 +117,7 @@ Her güncelleme denetimi, kullanım verisi izninden bağımsız olarak site adre
 | `GET /v1/fluxapp/<marka>/download/<macos\|windows\|windows-msi>` | herkese açık; kalıcı bağlantı, son kurulum dosyasına 302 (indirme düğmeleri için) |
 | `GET /v1/fluxapp/<marka>/tauri/<target>/<arch>/<sürüm>` | herkese açık; Tauri updater biçimi (`darwin` → `.app.tar.gz`, `windows` → `setup.exe`), yeni sürüm yoksa 204 |
 | `GET /v1/fluxapp/download/<tag>/<dosya>` | herkese açık; GitHub indirme adresine 302 |
+| `GET /v1/icon/<slug>/<sürüm>/<default\|pastel>.svg?t=` | paketin release zip'indeki ikon; imzalı adres `/v1/check`'ten gelir |
 | `POST /v1/webhook` | `X-Hub-Signature-256` imzalı; release önbelleğini boşaltır |
 | `GET /admin` | yönetim paneli (`/status` buraya yönlenir) |
 
