@@ -686,7 +686,6 @@ final class Panel {
 				'category' => CatalogMeta::key( (string) ( $p['category'] ?? '' ) ),
 				'order'    => max( 0, min( 9999, (int) ( $p['order'] ?? 0 ) ) ),
 				'rec'      => ! empty( $p['rec'] ),
-				'desc'     => CatalogMeta::texts( (array) ( $p['desc'] ?? array() ) ),
 			);
 		}
 		Settings::update( $this->data_dir, array( 'pkg_meta' => $meta ) );
@@ -1358,11 +1357,11 @@ var L = <?php echo json_encode( array(
 				<p class="muted"><?php echo __( 'Paket yok. Depoları ve (private depo için) GitHub token\'ı girin; depoda release yoksa bir pakete sürüm çıkın.' ); ?></p>
 			<?php else : ?>
 			<?php $cats = CatalogMeta::categories( $this->config ); ?>
-			<p class="small muted"><?php echo __( 'Kategori, sıra, "Önerilen" ve kısa açıklama: sitelerdeki kurulum sihirbazının eklenti ekranları buna göre dizilir. Private paketler sihirbazda hiç görünmez; kategorisi olmayan eklenti "Diğer"e düşer.' ); ?></p>
+			<p class="small muted"><?php echo __( 'Configure wizard placement here. Package descriptions, icons and images are synchronized from GitHub below.' ); ?></p>
 			<form method="post">
 			<?php echo $this->hidden( 'save_pkg_meta' ); ?>
 			<div class="table-wrap"><table>
-				<tr><th><?php echo __( 'Paket' ); ?></th><th><?php echo __( 'Erişim' ); ?></th><th><?php echo __( 'Tür' ); ?></th><th><?php echo __( 'Son sürüm' ); ?></th><th><?php echo __( 'Yayın' ); ?></th><th><?php echo __( 'Sihirbaz kategorisi' ); ?></th><th><?php echo __( 'Sıra' ); ?></th><th><?php echo __( 'Önerilen' ); ?></th><th><?php echo __( 'Kısa açıklama' ); ?> (EN / TR)</th></tr>
+				<tr><th><?php echo __( 'Paket' ); ?></th><th><?php echo __( 'Erişim' ); ?></th><th><?php echo __( 'Tür' ); ?></th><th><?php echo __( 'Son sürüm' ); ?></th><th><?php echo __( 'Yayın' ); ?></th><th><?php echo __( 'Sihirbaz kategorisi' ); ?></th><th><?php echo __( 'Sıra' ); ?></th><th><?php echo __( 'Önerilen' ); ?></th></tr>
 				<?php foreach ( $catalog as $slug => $r ) : ?>
 					<?php $pm = CatalogMeta::package( $this->config, (string) $slug ); ?>
 					<tr>
@@ -1380,9 +1379,8 @@ var L = <?php echo json_encode( array(
 							</select></td>
 							<td><input type="number" name="pkg[<?php echo $e( $slug ); ?>][order]" min="0" max="9999" value="<?php echo (int) $pm['order']; ?>" style="width:5.5em"></td>
 							<td><input type="checkbox" name="pkg[<?php echo $e( $slug ); ?>][rec]" value="1"<?php echo $pm['rec'] ? ' checked' : ''; ?>></td>
-							<td><?php foreach ( I18n::LANGS as $l => $ln ) : ?><input type="text" name="pkg[<?php echo $e( $slug ); ?>][desc][<?php echo $e( $l ); ?>]" value="<?php echo $e( $pm['desc'][ $l ] ?? '' ); ?>" placeholder="<?php echo $e( strtoupper( $l ) ); ?>" maxlength="200"><?php endforeach; ?></td>
 						<?php else : ?>
-							<td class="muted">—</td><td></td><td></td><td></td>
+							<td class="muted">—</td><td></td><td></td>
 						<?php endif; ?>
 					</tr>
 				<?php endforeach; ?>

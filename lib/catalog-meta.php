@@ -21,28 +21,28 @@ final class CatalogMeta {
 
 	/** Varsayılan paket yerleri: slug => [kategori, sıra, önerilen, kısa açıklama (dil => metin)]. */
 	const PACKAGES = array(
-		'flx-commerce'     => array( 'sales', 10, true, array( 'tr' => 'WooCommerce mağazası: satış paneli, müşteriler, raporlar ve dekontlu Havale/EFT.', 'en' => 'WooCommerce store: sales dashboard, customers, reports and bank transfer with receipts.' ) ),
-		'flx-donate'       => array( 'sales', 20, true, array( 'tr' => 'WooCommerce üzerinde bağış türleri ve tek sayfalık ödeme.', 'en' => 'Donation types on WooCommerce with a one-page checkout.' ) ),
-		'flx-certificates' => array( 'sales', 30, true, array( 'tr' => 'Her bağışçıya adına PDF sertifika gönderir.', 'en' => 'Sends every donor a PDF certificate in their name.' ) ),
-		'flx-admin'        => array( 'manage', 10, true, array( 'tr' => 'Komut paleti, mobil menü ve düzenlenebilir panel.', 'en' => 'Command palette, mobile menu and a customisable dashboard.' ) ),
-		'flx-roles'        => array( 'manage', 20, false, array( 'tr' => 'Personel rolleri ve sayfa bazlı yetkiler.', 'en' => 'Staff roles and per-page permissions.' ) ),
-		'flx-tasks'        => array( 'manage', 30, false, array( 'tr' => 'Görev panosu, takvim ve toplantı notları.', 'en' => 'Task board, calendar and meeting notes.' ) ),
-		'flx-app'          => array( 'manage', 40, false, array( 'tr' => 'Masaüstü ve mobil FluxApp bağlantısı.', 'en' => 'Connects the desktop and mobile FluxApp.' ) ),
-		'flx-crm'          => array( 'contact', 5, true, array( 'tr' => 'Bağışçı, müşteri ve gönüllüler tek kişi kartında; segment ve kampanya.', 'en' => 'Donors, customers and volunteers on one contact card, with segments and campaigns.' ) ),
-		'flx-chatbot'      => array( 'contact', 15, false, array( 'tr' => 'Sitede AI sohbet penceresi ve canlı destek.', 'en' => 'AI chat window and live support on your site.' ) ),
-		'flx-recaptcha'    => array( 'system', 30, false, array( 'tr' => 'Giriş, yorum, bağış ve form gönderimlerinde reCAPTCHA.', 'en' => 'reCAPTCHA on login, comments, donations and form submissions.' ) ),
-		'flx-wiki'         => array( 'grow', 50, false, array( 'tr' => 'Sitede Markdown wiki: sayfa ağacı, arama, SEO ve LLM dostu.', 'en' => 'A Markdown wiki on your site: page tree, search, SEO and LLM friendly.' ) ),
-		'flx-chat'         => array( 'contact', 10, true, array( 'tr' => 'WhatsApp gelen kutusu, hazır cevaplar ve AI asistan.', 'en' => 'WhatsApp inbox, canned replies and an AI assistant.' ) ),
-		'flx-forms'        => array( 'contact', 20, true, array( 'tr' => 'Sürükle-bırak form, ödeme alanı ve otomasyon.', 'en' => 'Drag-and-drop forms with payments and automations.' ) ),
-		'flx-mail'         => array( 'contact', 30, true, array( 'tr' => 'SMTP bağlantısı, posta kutusu ve gönderim kaydı.', 'en' => 'SMTP connection, mailbox and delivery log.' ) ),
-		'flx-seo'          => array( 'grow', 10, true, array( 'tr' => 'Site denetimi, schema ve sayfa başına meta.', 'en' => 'Site audit, schema and per-page meta.' ) ),
-		'flx-analytics'    => array( 'grow', 20, false, array( 'tr' => 'Çerez kullanmadan ziyaretçi ve dönüşüm analizi.', 'en' => 'Cookie-free visitor and conversion analytics.' ) ),
-		'flx-lang'         => array( 'grow', 30, false, array( 'tr' => 'Sayfa ve menüleri İngilizce ve diğer dillere çevirir.', 'en' => 'Translates pages and menus into English and other languages.' ) ),
-		'flx-social'       => array( 'grow', 40, false, array( 'tr' => 'Sosyal medya paylaşım takvimi ve onay akışı.', 'en' => 'Social media calendar with an approval flow.' ) ),
-		'flx-ai'           => array( 'ai', 10, false, array( 'tr' => 'Ekip için ortak AI modelleri ve günlük bütçe.', 'en' => 'Shared AI models for the team with a daily budget.' ) ),
-		'flx-studio'       => array( 'ai', 20, false, array( 'tr' => 'AI ile görsel ve kısa video üretimi.', 'en' => 'Images and short videos generated with AI.' ) ),
-		'flx-speed'        => array( 'system', 10, true, array( 'tr' => 'Önbellek, WebP dönüşümü ve sistem kontrolü.', 'en' => 'Caching, WebP conversion and a system check.' ) ),
-		'flx-backup'       => array( 'system', 20, true, array( 'tr' => 'Günlük yedek ve tek tıkla geri yükleme.', 'en' => 'Daily backups and one-click restore.' ) ),
+		'flx-commerce'     => array( 'sales', 10, true ),
+		'flx-donate'       => array( 'sales', 20, true ),
+		'flx-certificates' => array( 'sales', 30, true ),
+		'flx-admin'        => array( 'manage', 10, true ),
+		'flx-roles'        => array( 'manage', 20, false ),
+		'flx-tasks'        => array( 'manage', 30, false ),
+		'flx-app'          => array( 'manage', 40, false ),
+		'flx-crm'          => array( 'contact', 5, true ),
+		'flx-chatbot'      => array( 'contact', 15, false ),
+		'flx-recaptcha'    => array( 'system', 30, false ),
+		'flx-wiki'         => array( 'grow', 50, false ),
+		'flx-chat'         => array( 'contact', 10, true ),
+		'flx-forms'        => array( 'contact', 20, true ),
+		'flx-mail'         => array( 'contact', 30, true ),
+		'flx-seo'          => array( 'grow', 10, true ),
+		'flx-analytics'    => array( 'grow', 20, false ),
+		'flx-lang'         => array( 'grow', 30, false ),
+		'flx-social'       => array( 'grow', 40, false ),
+		'flx-ai'           => array( 'ai', 10, false ),
+		'flx-studio'       => array( 'ai', 20, false ),
+		'flx-speed'        => array( 'system', 10, true ),
+		'flx-backup'       => array( 'system', 20, true ),
 	);
 
 	/** Panelde kayıtlı liste varsa o, yoksa varsayılan; sıraya göre. */
@@ -79,11 +79,10 @@ final class CatalogMeta {
 				'category' => self::key( (string) ( $saved['category'] ?? '' ) ),
 				'order'    => (int) ( $saved['order'] ?? 0 ),
 				'rec'      => ! empty( $saved['rec'] ),
-				'desc'     => self::texts( $saved['desc'] ?? array() ),
 			);
 		}
 		$d = self::PACKAGES[ $slug ] ?? null;
-		return $d ? array( 'category' => $d[0], 'order' => $d[1], 'rec' => $d[2], 'desc' => $d[3] ) : array( 'category' => '', 'order' => 999, 'rec' => false, 'desc' => array() );
+		return $d ? array( 'category' => $d[0], 'order' => $d[1], 'rec' => $d[2] ) : array( 'category' => '', 'order' => 999, 'rec' => false );
 	}
 
 	public static function key( string $k ): string {

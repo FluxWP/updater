@@ -1,6 +1,7 @@
 <?php
 /** Turkish translations for English package preview keys. */
 return array(
+ 'Configure wizard placement here. Package descriptions, icons and images are synchronized from GitHub below.' => 'Sihirbazdaki yerleşimi buradan ayarlayın. Paket açıklamaları, ikonları ve görselleri aşağıdaki GitHub kaynağından eşitlenir.',
 	'GitHub package previews' => 'GitHub paket tanıtımları',
 	'Descriptions, icons, gallery images and website links come from catalog/packages.json in each package repository. Edit them in GitHub; this server caches and distributes them to authorized sites.' => 'Açıklamalar, ikonlar, galeri görselleri ve site bağlantıları her paket deposundaki catalog/packages.json dosyasından gelir. Düzenlemeleri GitHub üzerinde yapın; bu sunucu verileri önbelleğe alıp izinli sitelere dağıtır.',
 	'Repository' => 'Depo',

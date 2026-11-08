@@ -1,6 +1,7 @@
 <?php
 /** Local HTTP fixture verifies GitHub -> updater cache -> authorized media. No real GitHub requests. */
 require __DIR__ . '/../lib/previews.php';
+require __DIR__ . '/../lib/catalog-meta.php';
 require __DIR__ . '/../lib/server.php';
 use FLXUpdate\{Previews,Server,HttpError};
 ob_start(); $checks = 0;

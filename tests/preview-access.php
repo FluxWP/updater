@@ -1,6 +1,7 @@
 <?php
 require __DIR__ . '/../lib/settings.php';
 require __DIR__ . '/../lib/previews.php';
+require __DIR__ . '/../lib/catalog-meta.php';
 require __DIR__ . '/../lib/server.php';
 use FLXUpdate\{Previews,Server,HttpError};
 ob_start();
@@ -31,6 +32,8 @@ try {
 	$authorized = array( 'hash' => $hash, 'channel' => 'stable', 'packages' => array( 'flx-private' ) );
 	access_check( array( 'flx-public' ) === array_keys( $server->catalog( 'stable', $anonymous ) ), 'Anonymous catalogs omit private package metadata' );
 	access_check( 2 === count( $server->catalog( 'stable', $authorized ) ), 'Authorized site sees its public and permitted private packages' );
+	$placement = \FLXUpdate\CatalogMeta::package( array(), 'flx-forms' );
+	access_check( 'contact' === $placement['category'] && ! isset( $placement['desc'] ), 'Wizard placement remains configurable without bundled description fallbacks' );
 	$pub = $server->preview_metadata( 'flx-public', $anonymous, array( 'repo' => 'example/public' ) )['gallery']['en'][0];
 	$priv = $server->preview_metadata( 'flx-private', $authorized, array( 'repo' => 'example/private' ) )['gallery']['en'][0];
 	access_check( false === strpos( $priv, 'local-fixture' ), 'Media URLs contain neither permanent site keys nor server secrets' );

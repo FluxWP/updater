@@ -72,7 +72,7 @@ Güncellemek için yeni zip'i üstüne açın. Ayarlar zip'te olmayan `data/sett
 
 ### Kurulum sihirbazı (1.13.0)
 
-FluxWP Panel'in kurulum sihirbazındaki eklenti listesini sunucu belirler. `/v1/check` kategorileri (anahtar, sıra, TR/EN ad ve açıklama) ve her paket için `category`, `order`, `rec` (önerilen), kısa `desc` (TR/EN) `icons` (`svg`, `pastel`) ve sihirbaz görseli `shots` (`tr`, `en`) döndürür. /admin › Paketler ve /admin › Kategoriler'den düzenlenir; kaydedilene kadar yerleşik varsayılanlar kullanılır. Private paketler sihirbazda hiç görünmez. Medya sürüm başına önbelleğe alınır: ikonlar paketin zip'inden (`assets/icon.svg`, `assets/icon-pastel.svg`), sihirbaz görselleri paketin deposundaki klasörden (`docs/wizard-tr.jpg`, `docs/wizard-en.jpg`), release tag'inden, yoksa varsayılan daldan. Yeni sürümün medyası webhook gelir gelmez çekilir. Varsayılan daldan gelen ve bulunamayan dosyalar 5 dakikada bir yeniden kontrol edilir. Adreste içerik özeti (`&h=`) var; dosya değişince hiçbir şey silmeden yenisi görünür. FluxWP Panel'e hiçbir şey gömülmez.
+Sihirbaz kategorileri ve paketlerin `category`, `order`, `rec` (önerilen) alanları /admin › Paketler ve /admin › Kategoriler'den ayarlanır. Private paketler sihirbazda görünmez. Açıklamalar, SVG ikonlar, galeriler ve site bağlantıları yalnız aşağıda anlatılan GitHub kataloğundan gelir; Updater bunları önbelleğe alıp dağıtır.
 
 ### Zip saklama
 
@@ -144,7 +144,7 @@ Katalog üretme ve yeni ekran çekme akışı ana FluxWP deposunun `tools/readme
 | `GET /v1/fluxapp/<marka>/download/<macos\|windows\|windows-msi>` | herkese açık; kalıcı bağlantı, son kurulum dosyasına 302 (indirme düğmeleri için) |
 | `GET /v1/fluxapp/<marka>/tauri/<target>/<arch>/<sürüm>` | herkese açık; Tauri updater biçimi (`darwin` → `.app.tar.gz`, `windows` → `setup.exe`), yeni sürüm yoksa 204 |
 | `GET /v1/fluxapp/download/<tag>/<dosya>` | herkese açık; GitHub indirme adresine 302 |
-| `GET /v1/media/<slug>/<sürüm>/<dosya>?t=` | paket ikonu (`icon.svg`, `icon-pastel.svg`) ya da sihirbaz görseli (`wizard-tr.jpg`, `wizard-en.jpg`); imzalı adres `/v1/check`'ten gelir |
+| `GET /v1/media/<slug>/<blob-id>.<ext>?expires=&site=&sig=` | `/v1/check` yanıtındaki, izin denetimli ve süreli GitHub ikonu veya galeri görseli; Updater önbelleğinden dağıtılır |
 | `POST /v1/webhook` | `X-Hub-Signature-256` imzalı; release önbelleğini boşaltır |
 | `GET /v1/admin/info\|overview\|resources\|settings\|repos` | yönetici anahtarı (`X-FluxWP-Manager-Key` ya da `Authorization: Bearer`); panel verisi JSON, `?lang=tr\|en`, `overview?r=7\|30\|90` |
 | `POST /v1/admin/action` | yönetici anahtarı; panel işlemi çalıştırır, gövde `{"action":"save_switch","switch":"lockdown","on":"1"}` (panel formlarıyla aynı alanlar). Hatalar: 401 `manager_key_invalid`, 400 `action_denied`, 422 doğrulama |

@@ -331,6 +331,7 @@ final class AdminApi {
 			$meta              = array();
 			foreach ( $catalog as $slug => $r ) {
 				$meta[ $slug ] = CatalogMeta::package( $this->config, (string) $slug );
+				$meta[ $slug ]['desc'] = ( new Previews( $this->data_dir ) )->read( (string) $slug, (string) ( $r['repo'] ?? '' ) )['desc'] ?? array();
 			}
 			$out['pkg_meta'] = $meta;
 		}
