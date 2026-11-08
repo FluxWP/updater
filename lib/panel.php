@@ -194,7 +194,32 @@ final class Panel {
 		);
 	}
 
+	private function view_previews( array $catalog ): void {
+		$e = static function ( $value ) { return htmlspecialchars( (string) $value, ENT_QUOTES, 'UTF-8' ); };
+		$sources = $this->server->sync_preview_sources();
+		?>
+		<div class="card" id="previews">
+			<h2><?php echo __( 'GitHub package previews' ); ?></h2>
+			<p class="muted"><?php echo __( 'Descriptions, icons, gallery images and website links come from catalog/packages.json in each package repository. Edit them in GitHub; this server caches and distributes them to authorized sites.' ); ?></p>
+			<div class="table-wrap"><table>
+				<tr><th><?php echo __( 'Repository' ); ?></th><th><?php echo __( 'Revision' ); ?></th><th><?php echo __( 'Paketler' ); ?></th><th><?php echo __( 'Status' ); ?></th></tr>
+				<?php foreach ( $sources as $repo => $source ) : ?>
+				<tr><td><a href="https://github.com/<?php echo $e( $repo ); ?>/blob/<?php echo $e( $source['revision'] ?? 'HEAD' ); ?>/catalog/packages.json" target="_blank" rel="noopener noreferrer"><?php echo $e( $repo ); ?></a></td><td><code><?php echo $e( substr( $source['revision'] ?? '—', 0, 12 ) ); ?></code></td><td><?php echo count( $source['packages'] ?? array() ); ?></td><td><?php echo $e( ! empty( $source['error'] ) ? __( 'Using cached data; GitHub sync will retry.' ) : ( empty( $source['revision'] ) ? __( 'Not synchronized yet' ) : __( 'Synced from GitHub' ) ) ); ?></td></tr>
+				<?php endforeach; ?>
+			</table></div>
+			<p class="small muted"><?php echo __( 'Media is fetched from GitHub on first use, verified against its immutable blob and cached here. Private media follows the same site and package permissions as downloads.' ); ?></p>
+			<form method="post"><?php echo $this->hidden( 'refresh_previews' ); ?><button class="btn sec sm"><?php echo __( 'Sync previews from GitHub' ); ?></button></form>
+		</div>
+		<?php
+	}
+
 	private function dispatch( string $action ): void {
+		if ( 'refresh_previews' === $action ) {
+			$this->server->sync_preview_sources( true );
+			$this->notice( __( 'GitHub package previews checked.' ) );
+			$this->page( __( 'Panel' ), array( $this, 'view_dashboard' ) ); return;
+		}
+
 		switch ( $action ) {
 			case 'logout':
 				$this->set_cookie( '', time() - 3600 );
@@ -1386,6 +1411,8 @@ var L = <?php echo json_encode( array(
 			<p class="row"><button class="btn sec sm"><?php echo __( 'Kaydet' ); ?></button> <button class="btn sec sm" name="reset" value="1"><?php echo __( 'Varsayılana dön' ); ?></button></p>
 			</form>
 		</div>
+		<?php $this->view_previews( $catalog ); ?>
+
 
 		<div class="grid">
 			<div class="card">

@@ -63,7 +63,8 @@ final class I18n {
 
 	public static function t( string $tr ): string {
 		if ( 'tr' === self::lang() ) {
-			return $tr;
+			$english_keys = require __DIR__ . '/lang/tr.php';
+			return $english_keys[ $tr ] ?? $tr;
 		}
 		if ( null === self::$map ) {
 			$file      = __DIR__ . '/lang/' . self::lang() . '.php';

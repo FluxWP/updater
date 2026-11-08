@@ -117,6 +117,20 @@ Her güncelleme denetimi, kullanım verisi izninden bağımsız olarak site adre
 - **Ülke erişimi:** *Seçilen ülkeleri engelle* ya da *Yalnız seçilen ülkelere izin ver*. Engellenen istek `403` (`"code":"region_blocked"`) alır. Ülkesi bulunamayan istek engelle kipinde geçer, izin kipinde engellenir. Varsayılan olarak aktif anahtarlı siteler muaftır.
 - Güvenlik değişiklikleri `data/access.log`'a yazılır.
 
+### GitHub kaynaklı paket tanıtımları (1.11.0)
+
+Akış **GitHub → Updater → WordPress** şeklindedir. Açıklamalar, site bağlantıları, ikonlar ve galeri referansları paket depolarındaki `catalog/packages.json` dosyalarında yönetilir. Updater panelinde ikinci bir düzenleme/yükleme alanı yoktur; **GitHub package previews** bölümünde eşitleme durumunu görebilir ve yeniden eşitleyebilirsiniz.
+
+Updater, yapılandırılmış her deponun varsayılan dalındaki son katalog commit'ini okur. Metin ve bağlantıları önbelleğe alır; görselleri ve ikonları ilk kullanımda GitHub'dan indirir, değişmez Git blob özetiyle doğrular ve kendi `/v1/media/` adresinden dağıtır. GitHub token'ı ve private depo yolları istemciye verilmez. GitHub geçici olarak erişilemezse son başarılı katalog korunur.
+
+- `desc`, `website`, `gallery` ve `icons` alanları paket kontrolüyle gelir; bölgesel `pt-br` gibi dil kodları korunur. `shots`, eski istemciler için ilk görseli taşır.
+- Galeriler JPEG/PNG/WebP, ikonlar ayrıca güvenli SVG kullanabilir. Raster dosyalar yeniden kodlanır; SVG betikleri, olayları ve dış kaynakları kaldırılır. Görsel başına 8 MB sınırı vardır.
+- Özel depolar aynı yapılandırılmış GitHub token'ıyla okunur; tanıtım ve medya yalnız site anahtarının görebildiği paketler için dağıtılır. İmzalı adresler yedi gün geçerlidir. Anahtarın kapatılması/paket izninin kaldırılması mevcut adresleri de engeller.
+- Önbellek korunan `data/preview-catalogs/` ve `data/preview-media/` altındadır; sunucu ZIP'i bunları silmez. Yeni bir katalog revizyonu yeni dosya özetlerini otomatik kullanır. PHP GD, DOM/XML ve cURL uzantıları gerekir.
+
+Katalog üretme ve yeni ekran çekme akışı ana FluxWP deposunun `tools/readme-media/README.md` belgesindedir. Private paketlerin kataloğu ve medyası yalnız kendi private depolarına commit edilir.
+
+
 ## Uç noktalar
 
 | | |

@@ -119,6 +119,20 @@ Every update check records the site address (scheme + host, plus subdirectory; n
 - **Country access:** *Block selected countries* or *Allow only selected countries*. A blocked request gets `403` (`"code":"region_blocked"`). An unknown country passes in block mode and is blocked in allow mode. Sites with an active key are exempt by default.
 - Security changes are written to `data/access.log`.
 
+### GitHub-owned package previews (1.11.0)
+
+The flow is **GitHub → Updater → WordPress**. Manage descriptions, publisher links, icons and gallery references in each package repository's `catalog/packages.json`. There is no second editing/upload surface in the updater. **GitHub package previews** shows synchronization status and provides an authenticated refresh action.
+
+For each configured repository, the updater reads the latest catalog commit on its default branch. It caches text and links; media is downloaded from GitHub on first use, verified against its immutable Git blob and served from this server's `/v1/media/` endpoint. GitHub credentials and private source paths never reach the client. Temporary GitHub failures preserve the last good manifest.
+
+- Package checks include `desc`, `website`, `gallery` and `icons`; regional locale codes such as `pt-br` are preserved. `shots` remains a first-image alias for older clients.
+- Galleries support JPEG/PNG/WebP; icons may also use sanitized SVG. Raster files are re-encoded; SVG scripts, event handlers and remote resources are removed. Each source asset is limited to 8 MB.
+- Private repositories use the configured GitHub token. Metadata and media are distributed only for packages authorized for the requesting site. Signed URLs expire after seven days, and disabling a site/removing its package permission revokes existing URLs.
+- Protected caches live in `data/preview-catalogs/` and `data/preview-media/` and survive server upgrades. A new catalog revision automatically selects new blob references. PHP GD, DOM/XML and cURL are required.
+
+The main FluxWP repository's `tools/readme-media/README.md` documents capture and catalog generation. Private package catalogs and media are committed only to their own private repositories.
+
+
 ## Endpoints
 
 | | |

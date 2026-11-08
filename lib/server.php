@@ -9,7 +9,7 @@
 
 namespace FLXUpdate;
 
-const VERSION = '1.13.1';
+const VERSION = '1.14.0';
 const DAY_SECONDS = 86400;
 
 class HttpError extends \Exception {
@@ -94,6 +94,9 @@ final class Server {
 					$this->guard_country( array( 'anon' => true ) );
 				}
 			}
+			if ( preg_match( '#^/v1/media/([a-z0-9][a-z0-9-]{0,63})/([a-f0-9]{64}\.(?:jpg|png|webp|svg))$#D', $path, $m ) ) {
+				$this->route_preview_media( $m[1], $m[2] ); return;
+			}
 			if ( '/v1/check' === $path ) {
 				$this->route_check( $method );
 				return;
@@ -158,6 +161,100 @@ final class Server {
 		}
 	}
 
+
+
+	/** Synchronize configured repositories; public UI never gets repository paths or GitHub credentials. */
+	public function sync_preview_sources( bool $fresh = false ): array {
+		$out = array();
+		foreach ( $this->repos() as $source ) { $this->sync_preview_source( $source['repo'], $fresh ); $out[ $source['repo'] ] = ( new Previews( $this->data_dir ) )->cached( $source['repo'] ); }
+		return $out;
+	}
+
+	private function sync_preview_source( string $repo, bool $fresh = false ): void {
+		$source = null;
+		foreach ( $this->repos() as $candidate ) { if ( strtolower( $candidate['repo'] ) === strtolower( $repo ) ) { $source = $candidate; break; } }
+		if ( ! $source ) { return; }
+		$store = new Previews( $this->data_dir ); $cache = $store->cached( $repo );
+		if ( ! $fresh && time() - (int) ( $cache['checked_at'] ?? 0 ) < (int) $this->config['cache_ttl'] ) { return; }
+		$dir = $this->data_dir . '/preview-locks'; if ( ! is_dir( $dir ) ) { mkdir( $dir, 0750, true ); }
+		$lock = fopen( $dir . '/' . hash( 'sha256', strtolower( $repo ) ) . '.lock', 'c' );
+		if ( ! $lock || ! flock( $lock, LOCK_EX ) ) { return; }
+		try {
+			$cache = $store->cached( $repo );
+			if ( ! $fresh && time() - (int) ( $cache['checked_at'] ?? 0 ) < (int) $this->config['cache_ttl'] ) { return; }
+			try {
+				$commits = json_decode( $this->github( '/repos/' . $repo . '/commits?path=catalog%2Fpackages.json&per_page=1', 'application/vnd.github+json', null, ! $source['public'], 65536, 10 ), true, 32, JSON_THROW_ON_ERROR );
+				$revision = (string) ( $commits[0]['sha'] ?? '' );
+				if ( ! preg_match( '/^[a-f0-9]{40}$/D', $revision ) ) { throw new \RuntimeException( 'No GitHub package preview manifest commit found' ); }
+				if ( $revision === ( $cache['revision'] ?? '' ) ) { $store->checked( $repo ); return; }
+				$raw = $this->github( '/repos/' . $repo . '/contents/catalog/packages.json?ref=' . $revision, 'application/vnd.github.raw+json', null, ! $source['public'], 2 * 1024 * 1024, 15 );
+				$manifest = json_decode( $raw, true, 32, JSON_THROW_ON_ERROR );
+				if ( ! is_array( $manifest ) ) { throw new \RuntimeException( 'Invalid GitHub package preview manifest' ); }
+				$store->store( $repo, $revision, $manifest, (bool) $source['public'] );
+			} catch ( \Throwable $error ) {
+				// Keep the last good manifest and immutable media when GitHub is temporarily unavailable.
+				$store->checked( $repo, 'GitHub preview synchronization failed' );
+				error_log( '[flx-update] previews ' . $repo . ': ' . $error->getMessage() );
+			}
+		} finally { flock( $lock, LOCK_UN ); fclose( $lock ); }
+	}
+
+	/** Metadata is emitted only for an authorized release from the matching repository cache. */
+	public function preview_metadata( string $slug, array $site, array $release ): array {
+		$data = ( new Previews( $this->data_dir ) )->read( $slug, (string) ( $release['repo'] ?? '' ) );
+		$out = array( 'desc' => $data['desc'] ?? array(), 'website' => $data['website'] ?? array(), 'gallery' => array(), 'shots' => array(), 'icons' => array() );
+		$scope = ! empty( $site['anon'] ) ? '' : (string) ( $site['hash'] ?? '' ); $expiry = time() + 7 * DAY_SECONDS;
+		$secret = (string) ( $this->config['secret'] ?? '' );
+		if ( '' === $secret ) { return $out; }
+		$url = function ( string $id ) use ( $slug, $scope, $expiry, $secret ): string {
+			$query = array( 'expires' => $expiry, 'site' => $scope, 'sig' => hash_hmac( 'sha256', $slug . '|' . $id . '|' . $scope . '|' . $expiry, $secret ) );
+			return $this->base_url() . '/v1/media/' . $slug . '/' . $id . '?' . http_build_query( $query );
+		};
+		foreach ( $data['gallery'] ?? array() as $locale => $ids ) {
+			foreach ( $ids as $id ) { $out['gallery'][ $locale ][] = $url( $id ); }
+			if ( ! empty( $out['gallery'][ $locale ] ) ) { $out['shots'][ $locale ] = $out['gallery'][ $locale ][0]; }
+		}
+		foreach ( $data['icons'] ?? array() as $kind => $id ) { $out['icons'][ $kind ] = $url( $id ); }
+		return $out;
+	}
+
+	private function route_preview_media( string $slug, string $id ): void {
+		$expiry = (int) ( $_GET['expires'] ?? 0 ); $scope = (string) ( $_GET['site'] ?? '' ); $secret = (string) ( $this->config['secret'] ?? '' );
+		$expected = hash_hmac( 'sha256', $slug . '|' . $id . '|' . $scope . '|' . $expiry, $secret );
+		if ( '' === $secret || $expiry < time() || $expiry > time() + 7 * DAY_SECONDS || ! hash_equals( $expected, (string) ( $_GET['sig'] ?? '' ) ) ) { throw new HttpError( 'Media access expired or invalid', 403 ); }
+		$site = array( 'anon' => true, 'channel' => 'stable', 'hash' => '', 'packages' => array(), 'repos' => array() );
+		if ( '' !== $scope ) {
+			$conf = $this->config['sites'][ $scope ] ?? null;
+			if ( ! is_array( $conf ) || ( isset( $conf['active'] ) && ! $conf['active'] ) ) { throw new HttpError( 'Media access revoked', 403 ); }
+			$site = $conf + array( 'channel' => 'stable', 'packages' => '*', 'repos' => array() ); $site['hash'] = $scope; $site['anon'] = false;
+		} elseif ( ! empty( $this->config['public_off'] ) ) { throw new HttpError( 'Keyless access is disabled', 403 ); }
+		$this->guard_country( $site ); $catalog = $this->catalog( $site['channel'], $site );
+		if ( ! isset( $catalog[ $slug ] ) ) { throw new HttpError( 'Media not available', 404 ); }
+		$release = $catalog[ $slug ]; $repo = (string) ( $release['repo'] ?? '' ); $store = new Previews( $this->data_dir );
+		$metadata = $store->read( $slug, $repo ); $asset = $metadata['assets'][ $id ] ?? null;
+		if ( ! is_array( $asset ) ) { throw new HttpError( 'Media not found', 404 ); }
+		$file = $store->path( $id );
+		if ( '' === $file ) {
+			$lock_dir = $this->data_dir . '/preview-media-locks'; if ( ! is_dir( $lock_dir ) ) { mkdir( $lock_dir, 0750, true ); }
+			$lock = fopen( $lock_dir . '/' . $id . '.lock', 'c' );
+			if ( ! $lock || ! flock( $lock, LOCK_EX ) ) { throw new HttpError( 'Preview media temporarily unavailable', 503 ); }
+			try {
+				$file = $store->path( $id ); $failure = $lock_dir . '/' . $id . '.failed';
+				if ( '' === $file && is_file( $failure ) && time() - filemtime( $failure ) < 300 ) { throw new HttpError( 'Preview media temporarily unavailable', 503 ); }
+				if ( '' === $file ) {
+					try {
+						$bytes = $this->github( '/repos/' . $repo . '/git/blobs/' . $asset['sha'], 'application/vnd.github.raw+json', null, ! in_array( strtolower( $repo ), array_map( 'strtolower', $this->public_repos() ), true ), 8 * 1024 * 1024, 25 );
+						$file = $store->cache_media( $asset, $bytes ); if ( is_file( $failure ) ) { unlink( $failure ); }
+					} catch ( \Throwable $error ) { touch( $failure ); error_log( '[flx-update] preview media: ' . $error->getMessage() ); throw new HttpError( 'Preview media temporarily unavailable', 503 ); }
+				}
+			} finally { flock( $lock, LOCK_UN ); fclose( $lock ); }
+		}
+		$mime = array( 'jpg' => 'image/jpeg', 'png' => 'image/png', 'webp' => 'image/webp', 'svg' => 'image/svg+xml' )[ pathinfo( $file, PATHINFO_EXTENSION ) ];
+		header( 'Content-Type: ' . $mime ); header( 'X-Content-Type-Options: nosniff' ); header( 'Referrer-Policy: no-referrer' );
+		if ( 'image/svg+xml' === $mime ) { header( "Content-Security-Policy: sandbox; default-src 'none'; style-src 'none'" ); }
+		header( 'Cache-Control: private, max-age=300' ); header( 'Content-Length: ' . filesize( $file ) ); readfile( $file );
+	}
+
 	/* ------------------------------------------------------------------ */
 	/* /v1/check                                                           */
 	/* ------------------------------------------------------------------ */
@@ -196,7 +293,10 @@ final class Server {
 		$catalog  = $this->catalog( $site['channel'], $site );
 		$versions = $this->versions( $site['channel'], $site );
 		$out      = array();
+		$preview_repos = array();
 		foreach ( $catalog as $slug => $rel ) {
+			$repo = (string) ( $rel['repo'] ?? '' );
+			if ( '' !== $repo && ! isset( $preview_repos[ $repo ] ) ) { $this->sync_preview_source( $repo ); $preview_repos[ $repo ] = true; }
 			$out[ $slug ] = array(
 				'slug'         => $slug,
 				'type'         => $rel['type'],
@@ -212,7 +312,7 @@ final class Server {
 				'size'         => $rel['size'],
 				'public'       => $this->is_public( $rel ),
 				'versions'     => $versions[ $slug ] ?? array(),
-			) + CatalogMeta::package( $this->config, $slug ) + $this->media_urls( $rel );
+			) + $this->preview_metadata( $slug, $site, $rel ) + array_intersect_key( CatalogMeta::package( $this->config, $slug ), array_flip( array( 'category', 'order', 'rec' ) ) );
 		}
 
 		if ( '' !== $site['hash'] ) {
@@ -1207,6 +1307,8 @@ final class Server {
 
 	/** Release önbelleğini boşaltır; bir sonraki istek GitHub'dan okur. */
 	public function flush_cache(): void {
+		( new Previews( $this->data_dir ) )->invalidate();
+		foreach ( glob( $this->data_dir . '/preview-media-locks/*.failed' ) ?: array() as $failure ) { unlink( $failure ); }
 		@unlink( $this->data_dir . '/releases.json' );
 		@unlink( $this->data_dir . '/app-releases.json' );
 		@unlink( $this->data_dir . '/fluxapp-releases.json' );
@@ -1756,7 +1858,7 @@ final class Server {
 	 * Asset indirmesinde GitHub başka bir host'a yönlendirir; curl Authorization
 	 * başlığını başka host'a taşımaz (doğru davranış).
 	 */
-	private function github( string $path, string $accept = 'application/vnd.github+json', $sink = null, bool $need_token = true ): string {
+	private function github( string $path, string $accept = 'application/vnd.github+json', $sink = null, bool $need_token = true, int $max_bytes = 0, int $timeout = 30 ): string {
 		$token = (string) $this->config['github_token'];
 		if ( '' === $token && $need_token ) {
 			throw new \RuntimeException( 'github_token is empty' );
@@ -1777,7 +1879,7 @@ final class Server {
 				CURLOPT_FOLLOWLOCATION => true,
 				CURLOPT_MAXREDIRS      => 5,
 				CURLOPT_CONNECTTIMEOUT => 10,
-				CURLOPT_TIMEOUT        => $sink ? 300 : 30,
+				CURLOPT_TIMEOUT        => $sink ? 300 : $timeout,
 				CURLOPT_FAILONERROR    => false,
 			)
 		);
@@ -1785,6 +1887,11 @@ final class Server {
 			curl_setopt( $ch, CURLOPT_FILE, $sink );
 		} else {
 			curl_setopt( $ch, CURLOPT_RETURNTRANSFER, true );
+		}
+		$buffer = '';
+		if ( ! $sink && $max_bytes > 0 ) {
+			curl_setopt( $ch, CURLOPT_RETURNTRANSFER, false );
+			curl_setopt( $ch, CURLOPT_WRITEFUNCTION, static function ( $handle, string $chunk ) use ( &$buffer, $max_bytes ): int { if ( strlen( $buffer ) + strlen( $chunk ) > $max_bytes ) { return 0; } $buffer .= $chunk; return strlen( $chunk ); } );
 		}
 		$res  = curl_exec( $ch );
 		$code = (int) curl_getinfo( $ch, CURLINFO_RESPONSE_CODE );
@@ -1796,7 +1903,7 @@ final class Server {
 		if ( $code >= 400 ) {
 			throw new \RuntimeException( 'GitHub HTTP ' . $code . ' for ' . $path );
 		}
-		return $sink ? '' : (string) $res;
+		return $sink ? '' : ( $max_bytes > 0 ? $buffer : (string) $res );
 	}
 
 	/** Asset indirme adresi: GitHub'ın verdiği yönlendirmeyi izlemeden döner. */
