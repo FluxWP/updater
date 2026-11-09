@@ -6,6 +6,7 @@
 
 require __DIR__ . '/lib/config.php';
 require __DIR__ . '/lib/i18n.php';
+require __DIR__ . '/lib/previews.php';
 require __DIR__ . '/lib/server.php';
 require __DIR__ . '/lib/catalog-meta.php';
 require __DIR__ . '/lib/stats.php';

@@ -9,7 +9,7 @@
 
 namespace FLXUpdate;
 
-const VERSION = '1.13.1';
+const VERSION = '1.14.0';
 const DAY_SECONDS = 86400;
 
 class HttpError extends \Exception {
@@ -94,6 +94,9 @@ final class Server {
 					$this->guard_country( array( 'anon' => true ) );
 				}
 			}
+			if ( preg_match( '#^/v1/media/([a-z0-9][a-z0-9-]{0,63})/([a-f0-9]{64}\.(?:jpg|png|webp|svg))$#D', $path, $m ) ) {
+				$this->route_preview_media( $m[1], $m[2] ); return;
+			}
 			if ( '/v1/check' === $path ) {
 				$this->route_check( $method );
 				return;
@@ -126,10 +129,6 @@ final class Server {
 				$this->route_fluxapp_download_latest( $m[1], $m[2] );
 				return;
 			}
-			if ( preg_match( '#^/v1/media/([a-z0-9][a-z0-9-]*)/([0-9][0-9A-Za-z.+-]*)/([a-z0-9.-]+)$#', $path, $m ) ) {
-				$this->route_media( $m[1], $m[2], $m[3], (string) ( $_GET['t'] ?? '' ) );
-				return;
-			}
 			if ( '/v1/webhook' === $path && 'POST' === $method ) {
 				$this->route_webhook();
 				return;
@@ -156,6 +155,100 @@ final class Server {
 			error_log( '[flx-update] ' . $e->getMessage() );
 			$this->json( array( 'ok' => false, 'error' => 'Server error' ), 500 );
 		}
+	}
+
+
+
+	/** Synchronize configured repositories; public UI never gets repository paths or GitHub credentials. */
+	public function sync_preview_sources( bool $fresh = false ): array {
+		$out = array();
+		foreach ( $this->repos() as $source ) { $this->sync_preview_source( $source['repo'], $fresh ); $out[ $source['repo'] ] = ( new Previews( $this->data_dir ) )->cached( $source['repo'] ); }
+		return $out;
+	}
+
+	private function sync_preview_source( string $repo, bool $fresh = false ): void {
+		$source = null;
+		foreach ( $this->repos() as $candidate ) { if ( strtolower( $candidate['repo'] ) === strtolower( $repo ) ) { $source = $candidate; break; } }
+		if ( ! $source ) { return; }
+		$store = new Previews( $this->data_dir ); $cache = $store->cached( $repo );
+		if ( ! $fresh && time() - (int) ( $cache['checked_at'] ?? 0 ) < (int) $this->config['cache_ttl'] ) { return; }
+		$dir = $this->data_dir . '/preview-locks'; if ( ! is_dir( $dir ) ) { mkdir( $dir, 0750, true ); }
+		$lock = fopen( $dir . '/' . hash( 'sha256', strtolower( $repo ) ) . '.lock', 'c' );
+		if ( ! $lock || ! flock( $lock, LOCK_EX ) ) { return; }
+		try {
+			$cache = $store->cached( $repo );
+			if ( ! $fresh && time() - (int) ( $cache['checked_at'] ?? 0 ) < (int) $this->config['cache_ttl'] ) { return; }
+			try {
+				$commits = json_decode( $this->github( '/repos/' . $repo . '/commits?path=catalog%2Fpackages.json&per_page=1', 'application/vnd.github+json', null, ! $source['public'], 65536, 10 ), true, 32, JSON_THROW_ON_ERROR );
+				$revision = (string) ( $commits[0]['sha'] ?? '' );
+				if ( ! preg_match( '/^[a-f0-9]{40}$/D', $revision ) ) { throw new \RuntimeException( 'No GitHub package preview manifest commit found' ); }
+				if ( $revision === ( $cache['revision'] ?? '' ) ) { $store->checked( $repo ); return; }
+				$raw = $this->github( '/repos/' . $repo . '/contents/catalog/packages.json?ref=' . $revision, 'application/vnd.github.raw+json', null, ! $source['public'], 2 * 1024 * 1024, 15 );
+				$manifest = json_decode( $raw, true, 32, JSON_THROW_ON_ERROR );
+				if ( ! is_array( $manifest ) ) { throw new \RuntimeException( 'Invalid GitHub package preview manifest' ); }
+				$store->store( $repo, $revision, $manifest, (bool) $source['public'] );
+			} catch ( \Throwable $error ) {
+				// Keep the last good manifest and immutable media when GitHub is temporarily unavailable.
+				$store->checked( $repo, 'GitHub preview synchronization failed' );
+				error_log( '[flx-update] previews ' . $repo . ': ' . $error->getMessage() );
+			}
+		} finally { flock( $lock, LOCK_UN ); fclose( $lock ); }
+	}
+
+	/** Metadata is emitted only for an authorized release from the matching repository cache. */
+	public function preview_metadata( string $slug, array $site, array $release ): array {
+		$data = ( new Previews( $this->data_dir ) )->read( $slug, (string) ( $release['repo'] ?? '' ) );
+		$out = array( 'desc' => $data['desc'] ?? array(), 'website' => $data['website'] ?? array(), 'gallery' => array(), 'shots' => array(), 'icons' => array() );
+		$scope = ! empty( $site['anon'] ) ? '' : (string) ( $site['hash'] ?? '' ); $expiry = time() + 7 * DAY_SECONDS;
+		$secret = (string) ( $this->config['secret'] ?? '' );
+		if ( '' === $secret ) { return $out; }
+		$url = function ( string $id ) use ( $slug, $scope, $expiry, $secret ): string {
+			$query = array( 'expires' => $expiry, 'site' => $scope, 'sig' => hash_hmac( 'sha256', $slug . '|' . $id . '|' . $scope . '|' . $expiry, $secret ) );
+			return $this->base_url() . '/v1/media/' . $slug . '/' . $id . '?' . http_build_query( $query );
+		};
+		foreach ( $data['gallery'] ?? array() as $locale => $ids ) {
+			foreach ( $ids as $id ) { $out['gallery'][ $locale ][] = $url( $id ); }
+			if ( ! empty( $out['gallery'][ $locale ] ) ) { $out['shots'][ $locale ] = $out['gallery'][ $locale ][0]; }
+		}
+		foreach ( $data['icons'] ?? array() as $kind => $id ) { $out['icons'][ $kind ] = $url( $id ); }
+		return $out;
+	}
+
+	private function route_preview_media( string $slug, string $id ): void {
+		$expiry = (int) ( $_GET['expires'] ?? 0 ); $scope = (string) ( $_GET['site'] ?? '' ); $secret = (string) ( $this->config['secret'] ?? '' );
+		$expected = hash_hmac( 'sha256', $slug . '|' . $id . '|' . $scope . '|' . $expiry, $secret );
+		if ( '' === $secret || $expiry < time() || $expiry > time() + 7 * DAY_SECONDS || ! hash_equals( $expected, (string) ( $_GET['sig'] ?? '' ) ) ) { throw new HttpError( 'Media access expired or invalid', 403 ); }
+		$site = array( 'anon' => true, 'channel' => 'stable', 'hash' => '', 'packages' => array(), 'repos' => array() );
+		if ( '' !== $scope ) {
+			$conf = $this->config['sites'][ $scope ] ?? null;
+			if ( ! is_array( $conf ) || ( isset( $conf['active'] ) && ! $conf['active'] ) ) { throw new HttpError( 'Media access revoked', 403 ); }
+			$site = $conf + array( 'channel' => 'stable', 'packages' => '*', 'repos' => array() ); $site['hash'] = $scope; $site['anon'] = false;
+		} elseif ( ! empty( $this->config['public_off'] ) ) { throw new HttpError( 'Keyless access is disabled', 403 ); }
+		$this->guard_country( $site ); $catalog = $this->catalog( $site['channel'], $site );
+		if ( ! isset( $catalog[ $slug ] ) ) { throw new HttpError( 'Media not available', 404 ); }
+		$release = $catalog[ $slug ]; $repo = (string) ( $release['repo'] ?? '' ); $store = new Previews( $this->data_dir );
+		$metadata = $store->read( $slug, $repo ); $asset = $metadata['assets'][ $id ] ?? null;
+		if ( ! is_array( $asset ) ) { throw new HttpError( 'Media not found', 404 ); }
+		$file = $store->path( $id );
+		if ( '' === $file ) {
+			$lock_dir = $this->data_dir . '/preview-media-locks'; if ( ! is_dir( $lock_dir ) ) { mkdir( $lock_dir, 0750, true ); }
+			$lock = fopen( $lock_dir . '/' . $id . '.lock', 'c' );
+			if ( ! $lock || ! flock( $lock, LOCK_EX ) ) { throw new HttpError( 'Preview media temporarily unavailable', 503 ); }
+			try {
+				$file = $store->path( $id ); $failure = $lock_dir . '/' . $id . '.failed';
+				if ( '' === $file && is_file( $failure ) && time() - filemtime( $failure ) < 300 ) { throw new HttpError( 'Preview media temporarily unavailable', 503 ); }
+				if ( '' === $file ) {
+					try {
+						$bytes = $this->github( '/repos/' . $repo . '/git/blobs/' . $asset['sha'], 'application/vnd.github.raw+json', null, ! in_array( strtolower( $repo ), array_map( 'strtolower', $this->public_repos() ), true ), 8 * 1024 * 1024, 25 );
+						$file = $store->cache_media( $asset, $bytes ); if ( is_file( $failure ) ) { unlink( $failure ); }
+					} catch ( \Throwable $error ) { touch( $failure ); error_log( '[flx-update] preview media: ' . $error->getMessage() ); throw new HttpError( 'Preview media temporarily unavailable', 503 ); }
+				}
+			} finally { flock( $lock, LOCK_UN ); fclose( $lock ); }
+		}
+		$mime = array( 'jpg' => 'image/jpeg', 'png' => 'image/png', 'webp' => 'image/webp', 'svg' => 'image/svg+xml' )[ pathinfo( $file, PATHINFO_EXTENSION ) ];
+		header( 'Content-Type: ' . $mime ); header( 'X-Content-Type-Options: nosniff' ); header( 'Referrer-Policy: no-referrer' );
+		if ( 'image/svg+xml' === $mime ) { header( "Content-Security-Policy: sandbox; default-src 'none'; style-src 'none'" ); }
+		header( 'Cache-Control: private, max-age=300' ); header( 'Content-Length: ' . filesize( $file ) ); readfile( $file );
 	}
 
 	/* ------------------------------------------------------------------ */
@@ -196,7 +289,10 @@ final class Server {
 		$catalog  = $this->catalog( $site['channel'], $site );
 		$versions = $this->versions( $site['channel'], $site );
 		$out      = array();
+		$preview_repos = array();
 		foreach ( $catalog as $slug => $rel ) {
+			$repo = (string) ( $rel['repo'] ?? '' );
+			if ( '' !== $repo && ! isset( $preview_repos[ $repo ] ) ) { $this->sync_preview_source( $repo ); $preview_repos[ $repo ] = true; }
 			$out[ $slug ] = array(
 				'slug'         => $slug,
 				'type'         => $rel['type'],
@@ -212,7 +308,7 @@ final class Server {
 				'size'         => $rel['size'],
 				'public'       => $this->is_public( $rel ),
 				'versions'     => $versions[ $slug ] ?? array(),
-			) + CatalogMeta::package( $this->config, $slug ) + $this->media_urls( $rel );
+			) + $this->preview_metadata( $slug, $site, $rel ) + array_intersect_key( CatalogMeta::package( $this->config, $slug ), array_flip( array( 'category', 'order', 'rec' ) ) );
 		}
 
 		if ( '' !== $site['hash'] ) {
@@ -410,242 +506,6 @@ final class Server {
 			$out['bytes'] += (int) @filesize( $f );
 		}
 		return $out;
-	}
-
-	/* ------------------------------------------------------------------ */
-	/* Paket medyası: ikon ve sihirbaz görseli. Önce paketin release zip'i, */
-	/* yoksa paketin deposu (release tag'inde docs/). Sürüm başına önbellek. */
-	/* ------------------------------------------------------------------ */
-
-	/**
-	 * Verilebilen medya: dosya adı => [içerik türü, zip içindeki adaylar, depodaki (paket klasörüne göre) adaylar].
-	 * Pastel ikon yoksa varsayılan ikon; dile özel görsel yoksa dilsiz görsel.
-	 */
-	const MEDIA = array(
-		'icon.svg'        => array( 'image/svg+xml', array( 'assets/icon.svg' ), array( 'assets/icon.svg', 'docs/icon.svg', 'docs/logo.svg' ) ),
-		'icon-pastel.svg' => array( 'image/svg+xml', array( 'assets/icon-pastel.svg', 'assets/icon.svg' ), array( 'assets/icon-pastel.svg', 'docs/icon-pastel.svg', 'assets/icon.svg', 'docs/icon.svg', 'docs/logo.svg' ) ),
-		'wizard-tr.jpg'   => array( 'image/jpeg', array(), array( 'docs/wizard-tr.jpg', 'docs/wizard.jpg' ) ),
-		'wizard-en.jpg'   => array( 'image/jpeg', array(), array( 'docs/wizard-en.jpg', 'docs/wizard.jpg' ) ),
-	);
-
-	/** Medya adresini imzalayan gizli değer (ilk kullanımda üretilip panel ayarlarına yazılır). */
-	private function media_secret(): string {
-		$s = (string) ( Settings::load( $this->data_dir )['icon_secret'] ?? '' );
-		if ( '' === $s ) {
-			$s = bin2hex( random_bytes( 24 ) );
-			Settings::update( $this->data_dir, array( 'icon_secret' => $s ) );
-		}
-		return $s;
-	}
-
-	private function media_token( string $slug, string $version ): string {
-		return substr( hash_hmac( 'sha256', $slug . '|' . $version, $this->media_secret() ), 0, 24 );
-	}
-
-	/**
-	 * Sürüm başına önbellek. Zip'ten ya da release tag'inden gelen dosya o sürüm için değişmez, kalıcı tutulur.
-	 * Tag'de olmayıp varsayılan daldan gelen dosya ile bulunamayan dosya bu süreden sonra yeniden kontrol edilir;
-	 * içerik değişince adresteki h (içerik özeti) de değişir, site ve tarayıcı yenisini hemen alır.
-	 */
-	const MEDIA_RECHECK = 300;
-
-	/** Medya durumu: "slug|sürüm|dosya" => {ok, at, h, src}. src: zip | tag | branch. */
-	private function media_index(): array {
-		$out = array();
-		foreach ( $this->read_json( $this->data_dir . '/media/index.json' ) as $k => $v ) {
-			if ( is_array( $v ) ) {
-				$out[ $k ] = $v + array( 'ok' => false, 'at' => 0, 'h' => '', 'src' => '' );
-			} elseif ( true === $v ) { // 1.13.0 kaydı
-				$out[ $k ] = array( 'ok' => true, 'at' => 0, 'h' => '', 'src' => 'tag' );
-			}
-		}
-		return $out;
-	}
-
-	/** Kayıt yeniden kontrol edilmeli mi: bulunamamış ya da varsayılan daldan gelmiş ve süresi dolmuş. */
-	private static function media_stale( ?array $e ): bool {
-		if ( null === $e ) {
-			return true;
-		}
-		return ( ! $e['ok'] || 'branch' === $e['src'] ) && time() - (int) $e['at'] > self::MEDIA_RECHECK;
-	}
-
-	private function media_url( array $rel, string $file, string $hash = '' ): string {
-		return $this->base_url() . '/v1/media/' . $rel['slug'] . '/' . rawurlencode( $rel['version'] ) . '/' . $file . '?t=' . $this->media_token( $rel['slug'], $rel['version'] ) . ( '' !== $hash ? '&h=' . $hash : '' );
-	}
-
-	/**
-	 * Katalogdaki paketin medya adresleri: icons {svg, pastel}, shots {tr, en}. Adres imzalıdır: kataloğu alan
-	 * site kullanabilir, private paketin dosyası tahminle açılamaz. Bulunmadığı bilinen dosya, yeniden kontrol
-	 * zamanı gelene kadar verilmez.
-	 */
-	private function media_urls( array $rel ): array {
-		if ( empty( $rel['asset_id'] ) ) {
-			return array( 'icons' => array(), 'shots' => array() );
-		}
-		$idx = $this->media_index();
-		$url = function ( string $file ) use ( $idx, $rel ): string {
-			$e = $idx[ $rel['slug'] . '|' . $rel['version'] . '|' . $file ] ?? null;
-			if ( $e && ! $e['ok'] && ! self::media_stale( $e ) ) {
-				return '';
-			}
-			return $this->media_url( $rel, $file, $e && $e['ok'] ? (string) $e['h'] : '' );
-		};
-		$out = array( 'icons' => array(), 'shots' => array() );
-		foreach ( array( 'svg' => 'icon.svg', 'pastel' => 'icon-pastel.svg', 'tr' => 'wizard-tr.jpg', 'en' => 'wizard-en.jpg' ) as $k => $f ) {
-			$u = $url( $f );
-			if ( '' !== $u ) {
-				$out[ 'svg' === $k || 'pastel' === $k ? 'icons' : 'shots' ][ $k ] = $u;
-			}
-		}
-		return $out;
-	}
-
-	/** Medya kaydını döndürür; yoksa, dosya silinmişse ya da yeniden kontrol zamanı geldiyse kaynaktan çeker. */
-	private function media_refresh( string $slug, string $version, string $file ): array {
-		$dir   = $this->data_dir . '/media';
-		$cache = $dir . '/' . $slug . '-' . preg_replace( '/[^0-9A-Za-z.+-]/', '', $version ) . '-' . $file;
-		$key   = $slug . '|' . $version . '|' . $file;
-		$e     = $this->media_index()[ $key ] ?? null;
-		if ( ! is_file( $cache ) && $e && $e['ok'] ) {
-			$e = null; // dosya silinmiş: yeniden çek
-		}
-		if ( ! self::media_stale( $e ) ) {
-			return $e;
-		}
-		if ( ! is_dir( $dir ) ) {
-			mkdir( $dir, 0750, true );
-		}
-		$src  = '';
-		$data = $this->find_media( $slug, $version, $file, $src );
-		$e    = array( 'ok' => '' !== $data, 'at' => time(), 'h' => '' !== $data ? substr( sha1( $data ), 0, 10 ) : '', 'src' => $src );
-		if ( '' !== $data ) {
-			file_put_contents( $cache, $data );
-		} elseif ( is_file( $cache ) ) {
-			@unlink( $cache );
-		}
-		$idx         = $this->media_index();
-		$idx[ $key ] = $e;
-		$this->write_json( $dir . '/index.json', $idx );
-		return $e;
-	}
-
-	/**
-	 * Yeni yayınlanan sürümlerin medyasını hemen çeker (webhook'tan sonra), böylece katalog ilk istekte
-	 * içerik özetli adres verir. Süre sınırlı; yetişmeyen dosya ilk istekte çekilir.
-	 */
-	public function warm_media( int $budget = 20 ): int {
-		$until = time() + $budget;
-		$n     = 0;
-		$best  = array(); // her paketin yalnız en yeni kararlı sürümü
-		foreach ( $this->releases() as $r ) {
-			if ( ! empty( $r['asset_id'] ) && empty( $r['prerelease'] ) && ( ! isset( $best[ $r['slug'] ] ) || version_compare( $r['version'], $best[ $r['slug'] ]['version'], '>' ) ) ) {
-				$best[ $r['slug'] ] = $r;
-			}
-		}
-		foreach ( $best as $r ) {
-			foreach ( array_keys( self::MEDIA ) as $file ) {
-				if ( time() >= $until ) {
-					return $n;
-				}
-				$e = $this->media_index()[ $r['slug'] . '|' . $r['version'] . '|' . $file ] ?? null;
-				if ( self::media_stale( $e ) ) {
-					try {
-						$this->media_refresh( $r['slug'], $r['version'], $file );
-						++$n;
-					} catch ( \Throwable $ex ) {
-						continue;
-					}
-				}
-			}
-		}
-		return $n;
-	}
-
-	/** GET /v1/media/<slug>/<sürüm>/<dosya>?t=<imza>[&h=<içerik özeti>] */
-	private function route_media( string $slug, string $version, string $file, string $token ): void {
-		if ( ! isset( self::MEDIA[ $file ] ) || ! hash_equals( $this->media_token( $slug, $version ), $token ) ) {
-			throw new HttpError( 'Not found', 404 );
-		}
-		$dir   = $this->data_dir . '/media';
-		$cache = $dir . '/' . $slug . '-' . preg_replace( '/[^0-9A-Za-z.+-]/', '', $version ) . '-' . $file;
-		$e     = $this->media_refresh( $slug, $version, $file );
-		if ( ! $e['ok'] || ! is_file( $cache ) ) {
-			header( 'Cache-Control: no-store' );
-			throw new HttpError( 'Not found', 404 );
-		}
-		// Adresteki özet güncelse içerik o adreste hiç değişmez; değilse (eski ya da özetsiz adres) kısa önbellek.
-		$fixed = '' !== $e['h'] && hash_equals( (string) $e['h'], (string) ( $_GET['h'] ?? '' ) );
-		header( 'Content-Type: ' . self::MEDIA[ $file ][0] );
-		header( 'Content-Length: ' . filesize( $cache ) );
-		header( 'Cache-Control: public, ' . ( $fixed ? 'max-age=31536000, immutable' : 'max-age=' . self::MEDIA_RECHECK ) );
-		header( 'ETag: "' . $e['h'] . '"' );
-		header( "Content-Security-Policy: default-src 'none'; style-src 'unsafe-inline'; sandbox" );
-		header( 'X-Content-Type-Options: nosniff' );
-		header( 'Access-Control-Allow-Origin: *' );
-		readfile( $cache );
-	}
-
-	/**
-	 * Dosyayı önce release zip'inden, yoksa paketin deposundan (release tag'i, sonra varsayılan dal) okur.
-	 * Bulunamazsa boş metin. $src: zip | tag | branch.
-	 */
-	private function find_media( string $slug, string $version, string $file, string &$src = '' ): string {
-		$release = null;
-		foreach ( $this->releases() as $r ) {
-			if ( $r['slug'] === $slug && $r['version'] === $version && $r['asset_id'] ) {
-				$release = $r;
-				break;
-			}
-		}
-		if ( ! $release ) {
-			return '';
-		}
-		list( $type, $in_zip, $in_repo ) = self::MEDIA[ $file ];
-		$ok = static function ( string $data ) use ( $type ): bool {
-			if ( '' === $data || strlen( $data ) > 2097152 ) {
-				return false;
-			}
-			return 'image/svg+xml' === $type ? false !== stripos( $data, '<svg' ) : "\xFF\xD8" === substr( $data, 0, 2 );
-		};
-		if ( $in_zip && class_exists( 'ZipArchive' ) ) {
-			$zipf = $this->zip_path( $slug, $version );
-			if ( ! is_file( $zipf ) || filesize( $zipf ) !== (int) $release['size'] ) {
-				$this->fetch_asset( (string) $release['repo'], (int) $release['asset_id'], $zipf, ! empty( $release['public'] ) );
-			}
-			@touch( $zipf );
-			$zip = new \ZipArchive();
-			if ( true === $zip->open( $zipf ) ) {
-				foreach ( $in_zip as $n ) {
-					$data = $zip->getFromName( $slug . '/' . $n );
-					if ( is_string( $data ) && $ok( $data ) ) {
-						$zip->close();
-						$src = 'zip';
-						return $data;
-					}
-				}
-				$zip->close();
-			}
-		}
-		// Depo: tek depoda çok paket (plugins/<slug>, themes/<slug>) ya da kökte tek paket.
-		// Önce release tag'i, tag'de yoksa varsayılan dal (görsel sürümden sonra eklenmiş olabilir).
-		$tag = rawurlencode( (string) ( $release['tag'] ?? ( $slug . '-v' . $version ) ) );
-		foreach ( array( '?ref=' . $tag, '' ) as $ref ) {
-			foreach ( $in_repo as $n ) {
-				foreach ( array( 'plugins/' . $slug . '/', 'themes/' . $slug . '/', '' ) as $base ) {
-					try {
-						$data = $this->github( '/repos/' . $release['repo'] . '/contents/' . $base . $n . $ref, 'application/vnd.github.raw', null, empty( $release['public'] ) );
-					} catch ( \Throwable $e ) {
-						continue;
-					}
-					if ( $ok( $data ) ) {
-						$src = '' === $ref ? 'branch' : 'tag';
-						return $data;
-					}
-				}
-			}
-		}
-		return '';
 	}
 
 	private function zip_path( string $slug, string $version ): string {
@@ -1041,13 +901,13 @@ final class Server {
 		@unlink( $this->data_dir . '/fluxapp-releases.json' );
 		$this->log( 'webhook', (string) ( $_SERVER['HTTP_X_GITHUB_EVENT'] ?? '' ) );
 		$this->json( array( 'ok' => true, 'flushed' => true ) );
-		// Yanıt gitti; yeni sürümlerin ikon ve görsellerini şimdi çek.
+		// Refresh GitHub manifests after the release response; media blobs remain lazy.
 		if ( function_exists( 'fastcgi_finish_request' ) ) {
 			fastcgi_finish_request();
 		}
 		ignore_user_abort( true );
 		try {
-			$this->warm_media();
+			$this->sync_preview_sources( true );
 		} catch ( \Throwable $e ) {
 			$this->log( 'media', $e->getMessage() );
 		}
@@ -1207,6 +1067,8 @@ final class Server {
 
 	/** Release önbelleğini boşaltır; bir sonraki istek GitHub'dan okur. */
 	public function flush_cache(): void {
+		( new Previews( $this->data_dir ) )->invalidate();
+		foreach ( glob( $this->data_dir . '/preview-media-locks/*.failed' ) ?: array() as $failure ) { unlink( $failure ); }
 		@unlink( $this->data_dir . '/releases.json' );
 		@unlink( $this->data_dir . '/app-releases.json' );
 		@unlink( $this->data_dir . '/fluxapp-releases.json' );
@@ -1756,7 +1618,7 @@ final class Server {
 	 * Asset indirmesinde GitHub başka bir host'a yönlendirir; curl Authorization
 	 * başlığını başka host'a taşımaz (doğru davranış).
 	 */
-	private function github( string $path, string $accept = 'application/vnd.github+json', $sink = null, bool $need_token = true ): string {
+	private function github( string $path, string $accept = 'application/vnd.github+json', $sink = null, bool $need_token = true, int $max_bytes = 0, int $timeout = 30 ): string {
 		$token = (string) $this->config['github_token'];
 		if ( '' === $token && $need_token ) {
 			throw new \RuntimeException( 'github_token is empty' );
@@ -1777,7 +1639,7 @@ final class Server {
 				CURLOPT_FOLLOWLOCATION => true,
 				CURLOPT_MAXREDIRS      => 5,
 				CURLOPT_CONNECTTIMEOUT => 10,
-				CURLOPT_TIMEOUT        => $sink ? 300 : 30,
+				CURLOPT_TIMEOUT        => $sink ? 300 : $timeout,
 				CURLOPT_FAILONERROR    => false,
 			)
 		);
@@ -1785,6 +1647,11 @@ final class Server {
 			curl_setopt( $ch, CURLOPT_FILE, $sink );
 		} else {
 			curl_setopt( $ch, CURLOPT_RETURNTRANSFER, true );
+		}
+		$buffer = '';
+		if ( ! $sink && $max_bytes > 0 ) {
+			curl_setopt( $ch, CURLOPT_RETURNTRANSFER, false );
+			curl_setopt( $ch, CURLOPT_WRITEFUNCTION, static function ( $handle, string $chunk ) use ( &$buffer, $max_bytes ): int { if ( strlen( $buffer ) + strlen( $chunk ) > $max_bytes ) { return 0; } $buffer .= $chunk; return strlen( $chunk ); } );
 		}
 		$res  = curl_exec( $ch );
 		$code = (int) curl_getinfo( $ch, CURLINFO_RESPONSE_CODE );
@@ -1796,7 +1663,7 @@ final class Server {
 		if ( $code >= 400 ) {
 			throw new \RuntimeException( 'GitHub HTTP ' . $code . ' for ' . $path );
 		}
-		return $sink ? '' : (string) $res;
+		return $sink ? '' : ( $max_bytes > 0 ? $buffer : (string) $res );
 	}
 
 	/** Asset indirme adresi: GitHub'ın verdiği yönlendirmeyi izlemeden döner. */

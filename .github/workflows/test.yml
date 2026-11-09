@@ -1,0 +1,17 @@
+name: Package preview tests
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  previews:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate GitHub mirror, media safety and authorization
+        run: |
+          docker run --rm -v "$PWD:/work:ro" wordpress:7.1.4-php8.3-apache php /work/tests/previews.php
+          docker run --rm -v "$PWD:/work:ro" wordpress:7.1.4-php8.3-apache php /work/tests/preview-access.php
+          docker run --rm -v "$PWD:/work:ro" wordpress:7.1.4-php8.3-apache php /work/tests/github-mirror.php
