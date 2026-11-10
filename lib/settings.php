@@ -23,8 +23,11 @@ final class Settings {
 		return is_array( $d ) ? $d : array();
 	}
 
-	/** Verilen alanları kaydeder (diğer alanlar korunur). */
-	public static function update( string $data_dir, array $changes ): array {
+	/**
+	 * settings.json kilidi altında oku-değiştir-yaz. Geri çağrı dizi dönerse yazılır;
+	 * null dönerse dosya değişmez (teslim gibi "yoksa dokunma" yolları için).
+	 */
+	public static function modify( string $data_dir, callable $fn ): array {
 		if ( ! is_dir( $data_dir ) ) {
 			mkdir( $data_dir, 0750, true );
 		}
@@ -33,21 +36,35 @@ final class Settings {
 		flock( $lock, LOCK_EX );
 		try {
 			$data = self::load( $data_dir );
-			foreach ( $changes as $k => $v ) {
-				if ( null === $v ) {
-					unset( $data[ $k ] );
-				} else {
-					$data[ $k ] = $v;
-				}
+			$next = $fn( $data );
+			if ( ! is_array( $next ) ) {
+				return $data;
 			}
 			$tmp = $file . '.' . getmypid() . '.tmp';
-			file_put_contents( $tmp, json_encode( $data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE ) );
+			file_put_contents( $tmp, json_encode( $next, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE ) );
 			@chmod( $tmp, 0640 );
 			rename( $tmp, $file );
-			return $data;
+			return $next;
 		} finally {
 			flock( $lock, LOCK_UN );
 			fclose( $lock );
 		}
+	}
+
+	/** Verilen alanları kaydeder (diğer alanlar korunur). */
+	public static function update( string $data_dir, array $changes ): array {
+		return self::modify(
+			$data_dir,
+			static function ( array $data ) use ( $changes ) {
+				foreach ( $changes as $k => $v ) {
+					if ( null === $v ) {
+						unset( $data[ $k ] );
+					} else {
+						$data[ $k ] = $v;
+					}
+				}
+				return $data;
+			}
+		);
 	}
 }

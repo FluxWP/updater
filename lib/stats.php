@@ -8,11 +8,12 @@
  * data/stats.json:
  *   days    => { "Y-m-d": { c: kontrol, a: anahtarsız kontrol, d: indirme, b: bayt, s: {site_id: 1}, p: {slug: indirme},
  *                g: { CC: { c: kontrol, d: indirme, b: bayt, x: engellenen, p: {slug: indirme} } } } }
- *   clients => { site_id: { url, name, key, off, ih, cc, wp, php, upd, use, pk: {slug: sürüm}, first, last, n } }
+ *   clients => { site_id: { url, name, key, off, ih, pfx, cc, wp, php, upd, use, pk: {slug: sürüm}, first, last, n } }
  *   use: site kullanım verisi göndermeye izin verdi mi (vermediyse wp, php boş). url ve cc zorunlu kayıttır,
  *   izinden bağımsız tutulur (zorunlu çerez gibi): url yalnız şema + host (+ alt dizin), sorgu yok.
  *   Ülkesi bilinmeyen istek g altında "ZZ" ile sayılır.
- *   ih: Flux Updater 1.7.0+ kurulum kimliğinin sha256 özeti (panelden anahtar vermek için).
+ *   ih: kurulum kimliğinin sha256 özeti (panelden anahtar vermek için). Kayıt bu özete bağlıdır, adrese değil.
+ *   pfx: kurulum kimliğinin ilk 8 karakteri (panelde satırları ayırt etmek için). Kimliğin kendisi saklanmaz.
  */
 
 namespace FLXUpdate;
@@ -22,6 +23,9 @@ final class Stats {
 	const KEEP_DAYS    = 120;
 	const CLIENT_DAYS  = 180;
 	const MAX_CLIENTS  = 5000;
+	/** Anahtarsız kayıt tavanı. Aşanlar en eski son-görülmeden düşer; anahtarlı kayıtlar bu tavandan etkilenmez. */
+	const MAX_KEYLESS  = 1000;
+	const INSTALL_PREFIX = 8;
 
 	/** @var string */
 	private $file;
@@ -35,18 +39,62 @@ final class Stats {
 	}
 
 	/**
-	 * Site kimliği: anahtarlı site anahtar özetinden, anahtarsız site adresinden; adres yoksa
-	 * (kullanım verisi izni verilmemiş) rastgele kurulum kimliğinin özetinden. IP kimlik olarak kullanılmaz.
+	 * Site kimliği: anahtarlı site anahtar özetinden, anahtarsız site kurulum kimliğinin özetinden.
+	 * Beyan edilen adres kimlik değildir; kurulum kimliği yoksa (eski istemci) adres kullanılır.
+	 * IP kimlik olarak kullanılmaz.
 	 */
 	public static function client_id( array $site, string $url, string $install_hash = '' ): string {
 		if ( ! empty( $site['hash'] ) ) {
 			return 'k' . substr( (string) $site['hash'], 0, 15 );
 		}
+		$bound = self::install_client_id( $install_hash );
+		if ( '' !== $bound ) {
+			return $bound;
+		}
 		$u = strtolower( preg_replace( '#^https?://(www\.)?#i', '', rtrim( $url, '/' ) ) );
 		if ( '' !== $u ) {
 			return 'u' . substr( hash( 'sha256', $u ), 0, 15 );
 		}
-		return 'i' . substr( hash( 'sha256', '' !== $install_hash ? $install_hash : 'unknown' ), 0, 15 );
+		return 'i' . substr( hash( 'sha256', 'unknown' ), 0, 15 );
+	}
+
+	/** Kurulum özetinden kayıt kimliği (`i` + özetin ilk 15 karakteri). Özet geçersizse ''. */
+	public static function install_client_id( string $install_hash ): string {
+		return preg_match( '/^[a-f0-9]{64}$/', $install_hash ) ? 'i' . substr( $install_hash, 0, 15 ) : '';
+	}
+
+	/** Bu kayıt, sakladığı kurulum özetinin kaydı mı? Karşılaştırma sabit zamanlıdır. */
+	public static function bound_install( string $client_id, array $client ): bool {
+		$want = self::install_client_id( (string) ( $client['ih'] ?? '' ) );
+		return '' !== $want && hash_equals( $want, $client_id );
+	}
+
+	/**
+	 * Aynı adresi birden fazla kurulum kimliği bildirdiyse o adresler.
+	 *
+	 * @param array<string,mixed> $clients
+	 * @return array<string,true>
+	 */
+	public static function shared_urls( array $clients ): array {
+		$by = array();
+		foreach ( $clients as $c ) {
+			if ( ! is_array( $c ) ) {
+				continue;
+			}
+			$url = (string) ( $c['url'] ?? '' );
+			$ih  = (string) ( $c['ih'] ?? '' );
+			if ( '' === $url || ! preg_match( '/^[a-f0-9]{64}$/', $ih ) ) {
+				continue;
+			}
+			$by[ $url ][ $ih ] = true;
+		}
+		$out = array();
+		foreach ( $by as $url => $ihs ) {
+			if ( count( $ihs ) > 1 ) {
+				$out[ $url ] = true;
+			}
+		}
+		return $out;
 	}
 
 	/**
@@ -92,10 +140,12 @@ final class Stats {
 			// İzin yok: WordPress/PHP sürümü, saat dilimi ve dil saklanmaz. Adres zorunlu kayıttır.
 			unset( $body['wp'], $body['php'], $body['tz'], $body['locale'] );
 		}
-		$url = self::site_url( (string) ( $body['site'] ?? '' ) );
-		$anon = ! empty( $site['anon'] );
-		$ih   = Server::install_hash( (string) ( $body['install'] ?? '' ) );
-		$id   = self::client_id( $site, $url, $ih );
+		$url     = self::site_url( (string) ( $body['site'] ?? '' ) );
+		$anon    = ! empty( $site['anon'] );
+		$install = (string) ( $body['install'] ?? '' );
+		$ih      = Server::install_hash( $install );
+		$prefix  = '' !== $ih ? substr( $install, 0, self::INSTALL_PREFIX ) : '';
+		$id      = self::client_id( $site, $url, $ih );
 		$cc   = self::valid_cc( $geo ) ? $geo : ( $usage ? self::country( $body ) : '' );
 		$gk   = '' !== $cc ? $cc : 'ZZ';
 		$pkgs = array();
@@ -108,7 +158,7 @@ final class Stats {
 			}
 		}
 		$this->update(
-			function ( array $all ) use ( $id, $anon, $url, $cc, $gk, $pkgs, $site, $body, $ih, $usage ) {
+			function ( array $all ) use ( $id, $anon, $url, $cc, $gk, $pkgs, $site, $body, $ih, $prefix, $usage ) {
 				$day = gmdate( 'Y-m-d' );
 				$d   = $all['days'][ $day ] ?? array();
 				$d['c'] = (int) ( $d['c'] ?? 0 ) + 1;
@@ -119,28 +169,48 @@ final class Stats {
 				$d['s'][ $id ]       = 1;
 				$all['days'][ $day ] = $d;
 
-				$c        = $all['clients'][ $id ] ?? array( 'first' => time(), 'n' => 0 );
+				$existing = $all['clients'][ $id ] ?? null;
+				if ( is_array( $existing ) ) {
+					$stored = (string) ( $existing['ih'] ?? '' );
+					// Başka bir kurulumun kaydına düşüldüyse (özet çakışması) saklanan kimlik ezilmez.
+					if ( '' !== $ih && '' !== $stored && ! hash_equals( $stored, $ih ) ) {
+						return $all;
+					}
+					$c = $existing;
+				} else {
+					$c = array( 'first' => time(), 'n' => 0 );
+				}
 				$c['url'] = '' === $url ? (string) ( $c['url'] ?? '' ) : $url;
 				$c['use'] = $usage;
 				$c['name'] = (string) ( $site['name'] ?? '' );
 				$c['key']  = '' !== (string) ( $site['hash'] ?? '' );
 				$c['off']  = ! empty( $site['disabled'] );
-				if ( '' !== $ih ) {
+				if ( '' !== $ih && '' === (string) ( $c['ih'] ?? '' ) ) {
 					$c['ih'] = $ih;
-					// Anahtar alan site ya da izni geri alan site: aynı kurulumun eski anahtarsız kaydı
-					// (adresli olabilir) bu kayda katılır, eski kayıt silinir.
-					if ( $c['key'] || ! $usage ) {
-						foreach ( (array) ( $all['clients'] ?? array() ) as $oid => $o ) {
-							if ( $oid !== $id && empty( $o['key'] ) && ( $o['ih'] ?? '' ) === $ih ) {
-								$c['first'] = min( (int) ( $c['first'] ?? time() ), (int) ( $o['first'] ?? time() ) );
-								$c['n']     = (int) ( $c['n'] ?? 0 ) + (int) ( $o['n'] ?? 0 );
-								unset( $all['clients'][ $oid ] );
-								foreach ( $all['days'] ?? array() as $day => $d ) {
-									if ( isset( $d['s'][ $oid ] ) ) {
-										unset( $all['days'][ $day ]['s'][ $oid ] );
-										$all['days'][ $day ]['s'][ $id ] = 1;
-									}
-								}
+				}
+				if ( '' !== $prefix && '' === (string) ( $c['pfx'] ?? '' ) && isset( $c['ih'] ) && hash_equals( (string) $c['ih'], $ih ) ) {
+					$c['pfx'] = $prefix;
+				}
+				if ( '' !== $ih ) {
+					// Aynı kurulumun eski anahtarsız kaydı (adrese bağlı kalmış olabilir) bu kayda katılır.
+					foreach ( (array) ( $all['clients'] ?? array() ) as $oid => $o ) {
+						if ( ! is_array( $o ) || (string) $oid === (string) $id || ! empty( $o['key'] ) ) {
+							continue;
+						}
+						$oih = (string) ( $o['ih'] ?? '' );
+						if ( 64 !== strlen( $oih ) || ! hash_equals( $oih, $ih ) ) {
+							continue;
+						}
+						$c['first'] = min( (int) ( $c['first'] ?? time() ), (int) ( $o['first'] ?? time() ) );
+						$c['n']     = (int) ( $c['n'] ?? 0 ) + (int) ( $o['n'] ?? 0 );
+						if ( '' === (string) ( $c['pfx'] ?? '' ) && '' !== (string) ( $o['pfx'] ?? '' ) ) {
+							$c['pfx'] = (string) $o['pfx'];
+						}
+						unset( $all['clients'][ $oid ] );
+						foreach ( $all['days'] ?? array() as $dk => $day_row ) {
+							if ( is_array( $day_row ) && isset( $day_row['s'][ $oid ] ) ) {
+								unset( $all['days'][ $dk ]['s'][ $oid ] );
+								$all['days'][ $dk ]['s'][ $id ] = 1;
 							}
 						}
 					}
@@ -404,7 +474,28 @@ final class Stats {
 		$old = time() - self::CLIENT_DAYS * DAY_SECONDS;
 		$cl  = (array) ( $all['clients'] ?? array() );
 		foreach ( $cl as $id => $c ) {
-			if ( (int) ( $c['last'] ?? 0 ) < $old ) {
+			if ( ! is_array( $c ) || (int) ( $c['last'] ?? 0 ) < $old ) {
+				unset( $cl[ $id ] );
+			}
+		}
+		$keyless = array();
+		foreach ( $cl as $id => $c ) {
+			if ( empty( $c['key'] ) ) {
+				$keyless[ $id ] = array(
+					'last'  => (int) ( $c['last'] ?? 0 ),
+					'n'     => (int) ( $c['n'] ?? 0 ),
+					'first' => (int) ( $c['first'] ?? 0 ),
+				);
+			}
+		}
+		if ( count( $keyless ) > self::MAX_KEYLESS ) {
+			uasort(
+				$keyless,
+				static function ( $a, $b ) {
+					return array( $a['last'], $a['n'], $a['first'] ) <=> array( $b['last'], $b['n'], $b['first'] );
+				}
+			);
+			foreach ( array_slice( array_keys( $keyless ), 0, count( $keyless ) - self::MAX_KEYLESS ) as $id ) {
 				unset( $cl[ $id ] );
 			}
 		}

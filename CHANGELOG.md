@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.15.2
+- Bind a keyless site record to its install ID. A second install ID for the same declared address is a separate row and cannot replace the first install ID.
+- Hand a panel-issued key only to the first request that presents that exact install ID. The handout is cleared under the settings lock, and it expires after 24 hours if nobody claims it.
+- When several install IDs report one address, the connected-sites table warns to verify the site before issuing a key, and shows first seen, last seen and a short install-ID prefix on each row.
+- Reject an install ID that is not 40 lowercase hex characters. Cap keyless rows (drop the stalest) so a flood of install IDs cannot grow `data/stats.json` without limit.
+
 ## 1.15.1
 - Require a setup token before the first admin account can be created. The token comes from `FLX_UPDATE_SETUP_TOKEN` or is generated once into `data/.setup-token` and the PHP error log; it is compared in constant time and is not shown on the setup page.
 - Throttle failed panel, setup and manager-key attempts in a locked file (site keys are 192-bit random and are not throttled, so one misconfigured site cannot lock out others behind the same shared-hosting IP). Store only a short-lived salted hash of the client, never the IP. Failed key attempts in `data/access.log` record the country, not the IP.

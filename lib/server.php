@@ -9,7 +9,7 @@
 
 namespace FLXUpdate;
 
-const VERSION = '1.15.1';
+const VERSION = '1.15.2';
 const DAY_SECONDS = 86400;
 
 class HttpError extends \Exception {
@@ -273,7 +273,7 @@ final class Server {
 		}
 		// Site adresi zorunlu kayıttır (izinden bağımsız); gövdede yoksa User-Agent'tan, sadeleştirilmiş.
 		$body['site'] = Stats::site_url( (string) ( $body['site'] ?? '' ), (string) ( $_SERVER['HTTP_USER_AGENT'] ?? '' ) );
-		// Panelden "Anahtar ver" denen site: anahtar, kurulum kimliği eşleşen anahtarsız isteğe teslim edilir.
+		// Panelden "Anahtar ver" denen kurulum: anahtar, tam o kurulum kimliğini sunan ilk anahtarsız isteğe bir kez teslim edilir.
 		$assigned = '' === $this->request_key() ? $this->assigned_key( (string) ( $body['install'] ?? '' ) ) : '';
 		try {
 			$site = $this->auth_site();
@@ -1418,7 +1418,10 @@ final class Server {
 	/* Panelden verilen anahtarın siteye teslimi                           */
 	/* ------------------------------------------------------------------ */
 
-	const CLAIM_DAYS = 7;
+	const CLAIM_HOURS = 24;
+
+	/** Yönetici API'sindeki claim_days alanı. Teslim süresi CLAIM_HOURS'tur. */
+	const CLAIM_DAYS = 1;
 
 	/**
 	 * Teslim bekleyen anahtar, sunucunun gizli değeri ve kurulum kimliği özetinden türetilir;
@@ -1428,40 +1431,105 @@ final class Server {
 		return 'flxu_' . substr( hash_hmac( 'sha256', 'claim|' . $ih . '|' . $nonce, $secret ), 0, 48 );
 	}
 
-	/** Kurulum kimliğinin özeti (stats ve bekleyen anahtar bunu tutar). */
+	/**
+	 * Kurulum kimliği opak bir belirteçtir: tam 40 küçük onaltılık karakter (istemci 20 bayt üretir).
+	 * Uymayan değer yok sayılır. Stats ve bekleyen anahtar bunun sha256 özetini tutar.
+	 */
 	public static function install_hash( string $install ): string {
-		return preg_match( '/^[a-f0-9]{40}$/', $install ) ? hash( 'sha256', $install ) : '';
-	}
-
-	/** Bu kurulum kimliğine verilmiş, süresi dolmamış anahtar ('' yoksa). */
-	private function assigned_key( string $install ): string {
-		$ih = self::install_hash( $install );
-		if ( '' === $ih || '' === (string) ( $this->config['secret'] ?? '' ) ) {
+		if ( 40 !== strlen( $install ) || ! preg_match( '/^[a-f0-9]{40}$/', $install ) ) {
 			return '';
 		}
-		foreach ( (array) $this->config['sites'] as $h => $conf ) {
-			$p = is_array( $conf['pending'] ?? null ) ? $conf['pending'] : null;
-			if ( ! $p || ! hash_equals( (string) ( $p['ih'] ?? '' ), $ih ) || (int) ( $p['exp'] ?? 0 ) < time() ) {
-				continue;
-			}
-			$key = self::derive_key( (string) $this->config['secret'], $ih, (string) ( $p['n'] ?? '' ) );
-			if ( hash_equals( strtolower( (string) $h ), hash( 'sha256', $key ) ) ) {
-				$this->log( 'key-delivered', (string) ( $conf['name'] ?? '' ) );
-				return $key;
-			}
-		}
-		return '';
+		return hash( 'sha256', $install );
 	}
 
-	/** Site anahtarla bağlandı: teslim tamam. */
-	private function claimed( string $hash ): void {
-		$s     = Settings::load( $this->data_dir );
-		$sites = is_array( $s['sites'] ?? null ) ? $s['sites'] : array();
-		if ( isset( $sites[ $hash ]['pending'] ) ) {
-			unset( $sites[ $hash ]['pending'] );
-			$sites[ $hash ]['claimed'] = gmdate( 'Y-m-d H:i' ) . ' UTC';
-			Settings::update( $this->data_dir, array( 'sites' => $sites ) );
+	/** Bellekte bu kurulum özetine verilmiş, süresi dolmamış teslim var mı? */
+	private function pending_matches( string $ih ): bool {
+		foreach ( (array) $this->config['sites'] as $conf ) {
+			if ( ! is_array( $conf ) ) {
+				continue;
+			}
+			$p = is_array( $conf['pending'] ?? null ) ? $conf['pending'] : null;
+			if ( ! $p ) {
+				continue;
+			}
+			$pih = (string) ( $p['ih'] ?? '' );
+			if ( 64 === strlen( $pih ) && hash_equals( $pih, $ih ) && (int) ( $p['exp'] ?? 0 ) >= time() ) {
+				return true;
+			}
 		}
+		return false;
+	}
+
+	/**
+	 * Bu kurulum kimliğine verilmiş anahtar ('' yoksa). İlk eşleşen istek anahtarı alır;
+	 * teslim settings.json kilidi altında silinir. Süresi dolan teslim durur, silinmez.
+	 */
+	private function assigned_key( string $install ): string {
+		$ih     = self::install_hash( $install );
+		$secret = (string) ( $this->config['secret'] ?? '' );
+		if ( '' === $ih || '' === $secret || ! $this->pending_matches( $ih ) ) {
+			return '';
+		}
+		$key  = '';
+		$name = '';
+		$hash = '';
+		Settings::modify(
+			$this->data_dir,
+			function ( array $data ) use ( $ih, $secret, &$key, &$name, &$hash ) {
+				$sites = is_array( $data['sites'] ?? null ) ? $data['sites'] : array();
+				foreach ( $sites as $h => $conf ) {
+					if ( ! is_array( $conf ) ) {
+						continue;
+					}
+					$p = is_array( $conf['pending'] ?? null ) ? $conf['pending'] : null;
+					if ( ! $p ) {
+						continue;
+					}
+					$pih = (string) ( $p['ih'] ?? '' );
+					if ( 64 !== strlen( $pih ) || ! hash_equals( $pih, $ih ) || (int) ( $p['exp'] ?? 0 ) < time() ) {
+						continue;
+					}
+					$candidate = self::derive_key( $secret, $ih, (string) ( $p['n'] ?? '' ) );
+					if ( ! hash_equals( strtolower( (string) $h ), hash( 'sha256', $candidate ) ) ) {
+						continue;
+					}
+					unset( $sites[ $h ]['pending'] );
+					$sites[ $h ]['claimed'] = gmdate( 'Y-m-d H:i' ) . ' UTC';
+					$data['sites']          = $sites;
+					$key                    = $candidate;
+					$name                   = (string) ( $conf['name'] ?? '' );
+					$hash                   = (string) $h;
+					return $data;
+				}
+				return null;
+			}
+		);
+		if ( '' === $key ) {
+			return '';
+		}
+		if ( isset( $this->config['sites'][ $hash ] ) && is_array( $this->config['sites'][ $hash ] ) ) {
+			unset( $this->config['sites'][ $hash ]['pending'] );
+			$this->config['sites'][ $hash ]['claimed'] = gmdate( 'Y-m-d H:i' ) . ' UTC';
+		}
+		$this->log( 'key-delivered', $name );
+		return $key;
+	}
+
+	/** Site anahtarla bağlandı: teslim tamam. Kilit altında okunur; başka bir teslimin silinmesini geri getirmez. */
+	private function claimed( string $hash ): void {
+		Settings::modify(
+			$this->data_dir,
+			static function ( array $data ) use ( $hash ) {
+				$sites = is_array( $data['sites'] ?? null ) ? $data['sites'] : array();
+				if ( ! isset( $sites[ $hash ]['pending'] ) ) {
+					return null;
+				}
+				unset( $sites[ $hash ]['pending'] );
+				$sites[ $hash ]['claimed'] = gmdate( 'Y-m-d H:i' ) . ' UTC';
+				$data['sites']             = $sites;
+				return $data;
+			}
+		);
 	}
 
 	/** @return string[] owner/repo listesi (virgül, boşluk ya da satır ile ayrılmış metin de olur). */

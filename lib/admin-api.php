@@ -166,33 +166,37 @@ final class AdminApi {
 				$pending[ $conf['pending']['ih'] ] = (string) $h;
 			}
 		}
+		$shared  = Stats::shared_urls( $S['clients'] );
 		$clients = array();
 		foreach ( $S['clients'] as $cid => $c ) {
-			$ih = (string) ( $c['ih'] ?? '' );
+			$ih    = (string) ( $c['ih'] ?? '' );
+			$bound = Stats::bound_install( (string) $cid, $c );
 			if ( ! empty( $c['key'] ) ) {
 				$access = ! empty( $c['off'] ) ? 'off' : 'keyed';
-			} elseif ( '' === $ih ) {
-				$access = 'needs_setup';
-			} elseif ( isset( $pending[ $ih ] ) ) {
+			} elseif ( '' !== $ih && isset( $pending[ $ih ] ) && $bound ) {
 				$access = 'pending';
-			} else {
+			} elseif ( $bound ) {
 				$access = 'can_issue';
+			} else {
+				$access = 'needs_setup';
 			}
 			$clients[] = array(
-				'id'       => (string) $cid,
-				'url'      => (string) ( $c['url'] ?? '' ),
-				'name'     => (string) ( $c['name'] ?? '' ),
-				'access'   => $access,
-				'site'     => $hashes[ (string) $cid ] ?? ( $pending[ $ih ] ?? '' ),
-				'cc'       => (string) ( $c['cc'] ?? '' ),
-				'country'  => ! empty( $c['cc'] ) ? Panel::country_name( (string) $c['cc'] ) : '',
-				'wp'       => (string) ( $c['wp'] ?? '' ),
-				'php'      => (string) ( $c['php'] ?? '' ),
-				'panel'    => (string) ( $c['upd'] ?? '' ),
-				'packages' => (array) ( $c['pk'] ?? array() ),
-				'checks'   => (int) ( $c['n'] ?? 0 ),
-				'first'    => (int) ( $c['first'] ?? 0 ),
-				'last'     => (int) ( $c['last'] ?? 0 ),
+				'id'             => (string) $cid,
+				'url'            => (string) ( $c['url'] ?? '' ),
+				'name'           => (string) ( $c['name'] ?? '' ),
+				'access'         => $access,
+				'site'           => $hashes[ (string) $cid ] ?? ( $bound ? ( $pending[ $ih ] ?? '' ) : '' ),
+				'cc'             => (string) ( $c['cc'] ?? '' ),
+				'country'        => ! empty( $c['cc'] ) ? Panel::country_name( (string) $c['cc'] ) : '',
+				'wp'             => (string) ( $c['wp'] ?? '' ),
+				'php'            => (string) ( $c['php'] ?? '' ),
+				'panel'          => (string) ( $c['upd'] ?? '' ),
+				'packages'       => (array) ( $c['pk'] ?? array() ),
+				'checks'         => (int) ( $c['n'] ?? 0 ),
+				'first'          => (int) ( $c['first'] ?? 0 ),
+				'last'           => (int) ( $c['last'] ?? 0 ),
+				'install_prefix' => (string) ( $c['pfx'] ?? '' ),
+				'shared_url'     => isset( $shared[ (string) ( $c['url'] ?? '' ) ] ),
 			);
 		}
 
@@ -318,7 +322,8 @@ final class AdminApi {
 			'packages' => $packages,
 			'updater_slugs' => Panel::UPDATER_SLUGS,
 			'sites'    => $sites,
-			'claim_days' => Server::CLAIM_DAYS,
+			'claim_days'  => Server::CLAIM_DAYS,
+			'claim_hours' => Server::CLAIM_HOURS,
 			'security' => array(
 				'lockdown'         => ! empty( $this->config['lockdown'] ),
 				'public_off'       => ! empty( $this->config['public_off'] ),
