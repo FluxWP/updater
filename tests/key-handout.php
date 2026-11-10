@@ -88,6 +88,7 @@ try {
 
 	$stats = new Stats( $dir );
 	$stats->record_check( $anon, array( 'site' => $url, 'install' => $a, 'usage' => true ) );
+	$stats->client( $id_a );
 	$legacy_ih = hash( 'sha256', 'legacy-url-row' );
 	$legacy_id = Stats::client_id( array( 'hash' => '' ), $url, '' );
 	$raw       = json_decode( (string) file_get_contents( $stats->file() ), true );
@@ -164,6 +165,7 @@ try {
 	$fresh    = bin2hex( random_bytes( 20 ) );
 	$fresh_id = Stats::install_client_id( Server::install_hash( $fresh ) );
 	$stats->record_check( $anon, array( 'site' => 'https://fresh.example', 'install' => $fresh ) );
+	$stats->client( $fresh_id );
 	$left    = json_decode( (string) file_get_contents( $stats->file() ), true );
 	$keyless = 0;
 	foreach ( (array) ( $left['clients'] ?? array() ) as $c ) {

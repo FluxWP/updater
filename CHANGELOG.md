@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.15.3
+- Append each update check to `data/stats.journal` and fold it into `data/stats.json` in batches (or when the panel, the admin API, or a key handout reads statistics). A check no longer rewrites the statistics file. The fold stores the last applied sequence, so a journal left behind after a crash is not counted twice.
+- When the package catalog expires, one request refreshes it from GitHub. Other checks keep serving the previous catalog and do not wait. If there is no catalog yet, they wait up to 20 seconds for that refresh instead of calling GitHub themselves. A failed refresh keeps the previous catalog and backs off for 30 seconds. The webhook and Reload packages still force a refresh.
+
 ## 1.15.2
 - Bind a keyless site record to its install ID. A second install ID for the same declared address is a separate row and cannot replace the first install ID.
 - Hand a panel-issued key only to the first request that presents that exact install ID. The handout is cleared under the settings lock, and it expires after 24 hours if nobody claims it.

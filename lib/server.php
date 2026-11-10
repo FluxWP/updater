@@ -9,7 +9,7 @@
 
 namespace FLXUpdate;
 
-const VERSION = '1.15.2';
+const VERSION = '1.15.3';
 const DAY_SECONDS = 86400;
 
 class HttpError extends \Exception {
@@ -34,6 +34,12 @@ final class Server {
 
 	/** @var string */
 	private $data_dir;
+
+	/** Başarısız katalog yenilemesinden sonra GitHub yeniden denenmeden beklenen süre (saniye). */
+	const RELEASE_BACKOFF = 30;
+
+	/** Önbellek hiç yokken diğer isteklerin tek yenilemeyi bekleme üst sınırı (saniye). */
+	const RELEASE_WAIT = 20;
 
 	public function __construct( array $config ) {
 		$this->config = $config + array(
@@ -1665,19 +1671,109 @@ final class Server {
 
 	/**
 	 * Tüm depoların release'leri (önbellekli). Tag biçimi: <slug>-v<sürüm>.
-	 * Okunamayan depo için önbellekteki eski liste kullanılır; diğerleri etkilenmez.
+	 * Süre dolunca tek istek kilidi alıp GitHub'ı okur; diğerleri eski listeyi beklemeden verir.
+	 * Liste hiç yoksa diğerleri en çok RELEASE_WAIT saniye o isteği bekler, GitHub'a gitmez.
+	 * Okuma bütün depolarda başarısızsa eski liste kalır ve RELEASE_BACKOFF saniye yeniden denenmez.
+	 * Webhook ve paneldeki yeniden okuma önbellek dosyasını sildiği için bir sonraki istek yine okur.
+	 * Okunamayan tek depo için önbellekteki eski liste kullanılır; diğerleri etkilenmez.
 	 */
 	public function releases(): array {
 		$file  = $this->data_dir . '/releases.json';
-		$cache = $this->read_json( $file );
 		$sig   = md5( json_encode( $this->repos() ) );
-		if ( isset( $cache['at'], $cache['items'] ) && ( $cache['sig'] ?? '' ) === $sig && time() - (int) $cache['at'] < (int) $this->config['cache_ttl'] ) {
-			return self::drop_shadowed( (array) $cache['items'] );
+		$cache = $this->read_json( $file );
+		$ready = $this->release_result( $cache, $sig );
+		if ( null !== $ready ) {
+			return $ready;
 		}
 
+		$lock = $this->open_release_lock();
+		if ( ! $lock ) {
+			if ( $this->releases_usable( $cache ) ) {
+				return self::drop_shadowed( (array) $cache['items'] );
+			}
+			throw new HttpError( 'Release list unavailable', 503 );
+		}
+		$owned = false;
+		try {
+			$owned = flock( $lock, LOCK_EX | LOCK_NB );
+			if ( ! $owned ) {
+				if ( $this->releases_usable( $cache ) ) {
+					return self::drop_shadowed( (array) $cache['items'] );
+				}
+				$deadline = microtime( true ) + self::RELEASE_WAIT;
+				while ( microtime( true ) < $deadline ) {
+					$cache = $this->read_json( $file );
+					$ready = $this->release_result( $cache, $sig );
+					if ( null !== $ready ) {
+						return $ready;
+					}
+					usleep( 50000 );
+					if ( flock( $lock, LOCK_EX | LOCK_NB ) ) {
+						$owned = true;
+						break;
+					}
+				}
+				if ( ! $owned ) {
+					$cache = $this->read_json( $file );
+					if ( $this->releases_usable( $cache ) ) {
+						return self::drop_shadowed( (array) $cache['items'] );
+					}
+					throw new HttpError( 'Release list unavailable', 503 );
+				}
+			}
+			$cache = $this->read_json( $file );
+			$ready = $this->release_result( $cache, $sig );
+			if ( null !== $ready ) {
+				return $ready;
+			}
+			return $this->fetch_releases( $file, $cache, $sig );
+		} finally {
+			if ( $owned ) {
+				flock( $lock, LOCK_UN );
+			}
+			fclose( $lock );
+		}
+	}
+
+	/** Taze liste ya da backoff içindeki eski liste. Yenilemek gerekiyorsa null. */
+	private function release_result( array $cache, string $sig ): ?array {
+		if ( $this->releases_fresh( $cache, $sig ) ) {
+			return self::drop_shadowed( (array) $cache['items'] );
+		}
+		if ( $this->releases_backing_off( $cache, $sig ) ) {
+			if ( $this->releases_usable( $cache ) ) {
+				return self::drop_shadowed( (array) $cache['items'] );
+			}
+			throw new HttpError( 'Release list unavailable', 502 );
+		}
+		return null;
+	}
+
+	private function releases_fresh( array $cache, string $sig ): bool {
+		return isset( $cache['at'], $cache['items'] ) && is_array( $cache['items'] ) && (string) ( $cache['sig'] ?? '' ) === $sig && (int) $cache['at'] > 0 && time() - (int) $cache['at'] < (int) $this->config['cache_ttl'];
+	}
+
+	private function releases_usable( array $cache ): bool {
+		return isset( $cache['items'] ) && is_array( $cache['items'] ) && count( $cache['items'] ) > 0;
+	}
+
+	private function releases_backing_off( array $cache, string $sig ): bool {
+		return (string) ( $cache['sig'] ?? '' ) === $sig && (int) ( $cache['fail_until'] ?? 0 ) > time();
+	}
+
+	/** @return resource|false */
+	private function open_release_lock() {
+		if ( ! is_dir( $this->data_dir ) && ! @mkdir( $this->data_dir, 0750, true ) && ! is_dir( $this->data_dir ) ) {
+			return false;
+		}
+		return @fopen( $this->data_dir . '/releases.json.lock', 'c' );
+	}
+
+	private function fetch_releases( string $file, array $cache, string $sig ): array {
 		$items  = array();
 		$errors = array();
-		foreach ( $this->repos() as $src ) {
+		$repos  = $this->repos();
+		foreach ( $repos as $src ) {
 			try {
 				$got = array();
 				for ( $page = 1; $page <= 10; $page++ ) {
@@ -1710,7 +1806,23 @@ final class Server {
 				}
 			}
 		}
-		if ( $errors && count( $errors ) === count( $this->repos() ) && ! $items ) {
+		if ( $repos && count( $errors ) === count( $repos ) ) {
+			if ( $this->releases_usable( $cache ) ) {
+				$cache['fail_until'] = time() + self::RELEASE_BACKOFF;
+				$cache['errors']     = $errors;
+				$this->write_json( $file, $cache );
+				return self::drop_shadowed( (array) $cache['items'] );
+			}
+			$this->write_json(
+				$file,
+				array(
+					'at'         => 0,
+					'sig'        => $sig,
+					'items'      => array(),
+					'errors'     => $errors,
+					'fail_until' => time() + self::RELEASE_BACKOFF,
+				)
+			);
 			throw new HttpError( 'Release list unavailable', 502 );
 		}
 

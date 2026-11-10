@@ -58,7 +58,7 @@ To upgrade, extract the new zip over the old one. Settings live in `data/setting
 
 ### Panel
 
-- **Overview:** sites that checked for updates in the last 7/30/90 days (with and without a key), checks, downloads, data sent, a daily chart, installs per package, a country map and the connected sites. Stored in `data/stats.json` (daily totals 120 days, sites 180 days after last seen). IPs are not stored; the country is looked up from the request's IP while it is handled (see *Countries and security* below).
+- **Overview:** sites that checked for updates in the last 7/30/90 days (with and without a key), checks, downloads, data sent, a daily chart, installs per package, a country map and the connected sites. Stored in `data/stats.json` (daily totals 120 days, sites 180 days after last seen). Each check is appended to `data/stats.journal` and folded into that file in batches, and again when the panel or the admin API reads statistics. The last folded sequence is stored, so a journal left behind by a crash is not counted twice. IPs are not stored; the country is looked up from the request's IP while it is handled (see *Countries and security* below).
 - **Resources:** disk, `data/` breakdown, GitHub API quota, package cache age, PHP limits. Old zips and the access log are cleaned from here.
 - **Repository picker:** private, public and app repositories are chosen as tags from the list GitHub returns for the token. Type `owner/repo` and press Enter to add one that is not listed.
 - **Language:** English (default) and Turkish, switched with EN/TR at the top.
@@ -67,6 +67,7 @@ To upgrade, extract the new zip over the old one. Settings live in `data/setting
 
 - Public packages are served without a key, except beta versions. With a key, the key's private packages are added to the same response.
 - If a repository cannot be read, its packages come from the last known list and the GitHub card shows "Unreadable".
+- When the cached package list expires, one request re-reads GitHub. Every other request keeps serving the previous list and does not wait. If there is no list yet, the others wait up to 20 seconds for that one read instead of calling GitHub themselves. A failed read keeps the previous list and tries again after 30 seconds. The webhook and Reload packages still force a new read.
 - `/v1/check` returns `requires_plugins` for every package (the `Requires Plugins:` header), so FluxWP Panel can install missing plugins together.
 - A version containing `-` (e.g. `1.3.0-beta.1`) is visible only on the beta channel.
 
