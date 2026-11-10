@@ -9,7 +9,7 @@
 
 namespace FLXUpdate;
 
-const VERSION = '1.14.0';
+const VERSION = '1.15.1';
 const DAY_SECONDS = 86400;
 
 class HttpError extends \Exception {
@@ -17,9 +17,13 @@ class HttpError extends \Exception {
 	/** @var string Makinenin okuyacağı neden (ör. region_blocked). */
 	public $reason = '';
 
-	public function __construct( string $message, int $code = 500, string $reason = '' ) {
+	/** @var int 429/503 için Retry-After (saniye). */
+	public $retry_after = 0;
+
+	public function __construct( string $message, int $code = 500, string $reason = '', int $retry_after = 0 ) {
 		parent::__construct( $message, $code );
-		$this->reason = $reason;
+		$this->reason      = $reason;
+		$this->retry_after = $retry_after;
 	}
 }
 
@@ -46,6 +50,7 @@ final class Server {
 			'admin_user'          => '',
 			'admin_password_hash' => '',
 			'admin_password'      => '',
+			'setup_token'         => '',
 			'sites'               => array(),
 			'data_dir'            => __DIR__ . '/../data',
 			'github_api'          => 'https://api.github.com',
@@ -147,7 +152,9 @@ final class Server {
 			if ( '' !== $e->reason ) {
 				$out['code'] = $e->reason;
 			}
-			if ( 503 === $e->getCode() && ! headers_sent() ) {
+			if ( $e->retry_after > 0 && ! headers_sent() ) {
+				header( 'Retry-After: ' . (int) $e->retry_after );
+			} elseif ( 503 === $e->getCode() && ! headers_sent() ) {
 				header( 'Retry-After: 3600' );
 			}
 			$this->json( $out, $e->getCode() ?: 500 );
@@ -222,7 +229,7 @@ final class Server {
 		if ( '' !== $scope ) {
 			$conf = $this->config['sites'][ $scope ] ?? null;
 			if ( ! is_array( $conf ) || ( isset( $conf['active'] ) && ! $conf['active'] ) ) { throw new HttpError( 'Media access revoked', 403 ); }
-			$site = $conf + array( 'channel' => 'stable', 'packages' => '*', 'repos' => array() ); $site['hash'] = $scope; $site['anon'] = false;
+			$site = $conf + array( 'channel' => 'stable', 'packages' => array(), 'repos' => array() ); $site['hash'] = $scope; $site['anon'] = false;
 		} elseif ( ! empty( $this->config['public_off'] ) ) { throw new HttpError( 'Keyless access is disabled', 403 ); }
 		$this->guard_country( $site ); $catalog = $this->catalog( $site['channel'], $site );
 		if ( ! isset( $catalog[ $slug ] ) ) { throw new HttpError( 'Media not available', 404 ); }
@@ -391,7 +398,7 @@ final class Server {
 
 		$file = $this->zip_path( $slug, $version );
 		if ( ! is_file( $file ) || filesize( $file ) !== (int) $release['size'] ) {
-			$this->fetch_asset( (string) $release['repo'], (int) $release['asset_id'], $file, ! empty( $release['public'] ) );
+			$this->fetch_asset( (string) $release['repo'], (int) $release['asset_id'], $file, ! empty( $release['public'] ), (int) $release['size'] );
 		}
 		@touch( $file ); // Eski sürüm: son indirmeden zip_temp_hours sonra silinir.
 		$this->prune_zips( $slug );
@@ -512,7 +519,7 @@ final class Server {
 		return $this->data_dir . '/zips/' . $slug . '/' . $slug . '-' . preg_replace( '/[^0-9A-Za-z.+-]/', '', $version ) . '.zip';
 	}
 
-	private function fetch_asset( string $repo, int $asset_id, string $file, bool $public = false ): void {
+	private function fetch_asset( string $repo, int $asset_id, string $file, bool $public = false, int $expected_size = 0 ): void {
 		$dir = dirname( $file );
 		if ( ! is_dir( $dir ) && ! mkdir( $dir, 0750, true ) && ! is_dir( $dir ) ) {
 			throw new \RuntimeException( 'Cannot create ' . $dir );
@@ -521,6 +528,13 @@ final class Server {
 		flock( $lock, LOCK_EX );
 		try {
 			clearstatcache( true, $file );
+			// Kilit alındıktan sonra tekrar bak: aynı zip'i bekleyen istek bir daha indirmesin.
+			if ( is_file( $file ) ) {
+				$have = (int) filesize( $file );
+				if ( ( $expected_size > 0 && $have === $expected_size ) || ( $expected_size <= 0 && $have > 0 ) ) {
+					return;
+				}
+			}
 			$tmp = $file . '.part';
 			$fp  = fopen( $tmp, 'wb' );
 			$this->github( '/repos/' . $repo . '/releases/assets/' . $asset_id, 'application/octet-stream', $fp, ! $public );
@@ -1210,6 +1224,117 @@ final class Server {
 		return trim( (string) $key );
 	}
 
+	/**
+	 * İstemci anahtarı: IP saklanmaz. Cloudflare arkasında gerçek adres yalnız
+	 * bağlantı Cloudflare IP'sinden geliyorsa okunur; özeti 10 dk'lık tuzla yazılır.
+	 */
+	private function throttle_client(): string {
+		$remote = (string) ( $_SERVER['REMOTE_ADDR'] ?? '' );
+		$ip     = $remote;
+		if ( '' !== $remote && Geo::is_cloudflare( $remote ) ) {
+			$real = (string) ( $_SERVER['HTTP_CF_CONNECTING_IP'] ?? '' );
+			if ( filter_var( $real, FILTER_VALIDATE_IP ) ) {
+				$ip = $real;
+			}
+		}
+		return '' !== $ip ? $ip : 'unknown';
+	}
+
+	/**
+	 * Başarısız kimlik doğrulama denemelerini sınırlar (panel girişi, kurulum, yönetici anahtarı).
+	 * Dosyada IP yok: kapsam + istemci, kısa ömürlü tuzla HMAC'lenir. Tuz pencereyle birlikte değişir.
+	 *
+	 * Ön kontrol ($record false) yalnız bu istemciyi kilitler; başka yerden gelen başarılı giriş
+	 * genel sayaca takılmaz. Genel sınır yalnız başarısız denemeyi 429 yapar.
+	 *
+	 * @param bool $record true: başarısız denemeyi kaydeder; false: bu istemci kilitli mi bakar.
+	 * @return int Sınır aşıldıysa kalan saniye (Retry-After), değilse 0.
+	 */
+	public function auth_throttle( string $scope, bool $record = false, int $client_max = 8, int $global_max = 40, int $window = 600 ): int {
+		if ( ! is_dir( $this->data_dir ) && ! @mkdir( $this->data_dir, 0750, true ) && ! is_dir( $this->data_dir ) ) {
+			return 0;
+		}
+		$file = $this->data_dir . '/.throttle.json';
+		$lock = @fopen( $file . '.lock', 'c' );
+		if ( ! $lock ) {
+			return 0;
+		}
+		flock( $lock, LOCK_EX );
+		try {
+			$now          = time();
+			$data         = $this->read_json( $file );
+			$prev_clients = (array) ( $data['clients'] ?? array() );
+			$prev_global  = (array) ( $data['global'] ?? array() );
+			$salt         = (string) ( $data['salt'] ?? '' );
+			$born         = (int) ( $data['salt_at'] ?? 0 );
+			$fresh        = strlen( $salt ) < 32 || $born <= 0 || ( $now - $born ) >= $window;
+			if ( $fresh ) {
+				$salt         = bin2hex( random_bytes( 32 ) );
+				$born         = $now;
+				$prev_clients = array();
+			}
+			$cut     = $now - $window;
+			$clients = array();
+			foreach ( $prev_clients as $k => $e ) {
+				if ( is_array( $e ) && (int) ( $e['t'] ?? 0 ) > $cut ) {
+					$clients[ (string) $k ] = array( 'n' => (int) ( $e['n'] ?? 0 ), 't' => (int) $e['t'] );
+				}
+			}
+			$global = array();
+			foreach ( $prev_global as $s => $e ) {
+				if ( is_array( $e ) && (int) ( $e['t'] ?? 0 ) > $cut ) {
+					$global[ (string) $s ] = array( 'n' => (int) ( $e['n'] ?? 0 ), 't' => (int) $e['t'] );
+				}
+			}
+			$cid   = substr( hash_hmac( 'sha256', $scope . '|' . $this->throttle_client(), $salt ), 0, 32 );
+			$ce    = $clients[ $cid ] ?? array( 'n' => 0, 't' => $now );
+			$ge    = $global[ $scope ] ?? array( 'n' => 0, 't' => $now );
+			$retry = 0;
+			if ( (int) $ce['n'] >= $client_max ) {
+				$retry = max( 1, ( (int) $ce['t'] + $window ) - $now );
+			}
+			if ( $record ) {
+				if ( (int) $ce['n'] < 1 ) {
+					$ce['t'] = $now;
+				}
+				if ( (int) $ge['n'] < 1 ) {
+					$ge['t'] = $now;
+				}
+				$ce['n'] = min( $client_max, (int) $ce['n'] + 1 );
+				$ge['n'] = min( $global_max, (int) $ge['n'] + 1 );
+				if ( count( $clients ) >= 2000 && ! isset( $clients[ $cid ] ) ) {
+					uasort(
+						$clients,
+						static function ( $a, $b ) {
+							return $a['t'] <=> $b['t'];
+						}
+					);
+					$clients = array_slice( $clients, -1000, null, true );
+				}
+				$clients[ $cid ]  = $ce;
+				$global[ $scope ] = $ge;
+				if ( (int) $ce['n'] >= $client_max ) {
+					$retry = max( $retry, max( 1, ( (int) $ce['t'] + $window ) - $now ) );
+				}
+				if ( (int) $ge['n'] >= $global_max ) {
+					$retry = max( $retry, max( 1, ( (int) $ge['t'] + $window ) - $now ) );
+				}
+			}
+			$dirty = $fresh || $record || count( $clients ) !== count( (array) ( $data['clients'] ?? array() ) ) || count( $global ) !== count( (array) ( $data['global'] ?? array() ) );
+			if ( $dirty ) {
+				$tmp = $file . '.' . getmypid() . '.tmp';
+				if ( false !== @file_put_contents( $tmp, json_encode( array( 'salt' => $salt, 'salt_at' => $born, 'clients' => $clients, 'global' => $global ) ) ) ) {
+					@chmod( $tmp, 0600 );
+					@rename( $tmp, $file );
+				}
+			}
+			return $retry;
+		} finally {
+			flock( $lock, LOCK_UN );
+			fclose( $lock );
+		}
+	}
+
 	private function auth_site(): array {
 		$key = $this->request_key();
 		if ( '' === $key ) {
@@ -1228,7 +1353,10 @@ final class Server {
 				'anon'     => true,
 			);
 		}
+		// Site anahtarı 192 bit rastgeledir; deneme sınırı konmaz. Paylaşımlı barındırmada aynı çıkış IP'sindeki
+		// tek hatalı site, geçerli anahtarlı komşularını da kilitlerdi.
 		if ( strlen( $key ) < 20 ) {
+			$this->log( 'auth-fail', $this->request_country() );
 			throw new HttpError( 'Invalid site key', 403 );
 		}
 		$hash = hash( 'sha256', $key );
@@ -1237,7 +1365,7 @@ final class Server {
 				$site = array(
 					'hash'     => $hash,
 					'name'     => (string) ( $conf['name'] ?? 'Site' ),
-					'packages' => $conf['packages'] ?? '*',
+					'packages' => $conf['packages'] ?? array(),
 					'repos'    => (array) ( $conf['repos'] ?? array() ),
 					'channel'  => ( $conf['channel'] ?? 'stable' ) === 'beta' ? 'beta' : 'stable',
 					'pending'  => ! empty( $conf['pending'] ),
@@ -1256,8 +1384,7 @@ final class Server {
 				return $site;
 			}
 		}
-		usleep( 500000 );
-		$this->log( 'auth-fail', $_SERVER['REMOTE_ADDR'] ?? '' );
+		$this->log( 'auth-fail', $this->request_country() );
 		throw new HttpError( 'Invalid site key', 403 );
 	}
 
@@ -1269,7 +1396,8 @@ final class Server {
 		if ( ! empty( $site['anon'] ) ) {
 			return false;
 		}
-		if ( '*' === ( $site['packages'] ?? '*' ) ) {
+		$packages = $site['packages'] ?? array();
+		if ( '*' === $packages ) {
 			return true;
 		}
 		$repo = strtolower( (string) ( $release['repo'] ?? '' ) );
@@ -1278,7 +1406,7 @@ final class Server {
 				return true;
 			}
 		}
-		return in_array( (string) $release['slug'], (array) $site['packages'], true );
+		return is_array( $packages ) && in_array( (string) $release['slug'], $packages, true );
 	}
 
 	/** Public depodaki paket herkese; private depodaki yalnız izinli anahtara. */
@@ -1749,8 +1877,8 @@ final class Server {
 		if ( ! empty( $this->config['base_url'] ) ) {
 			return rtrim( $this->config['base_url'], '/' );
 		}
-		$host = $_SERVER['HTTP_HOST'] ?? 'localhost';
-		$host = preg_replace( '/[^A-Za-z0-9.:-]/', '', $host );
+		$host  = $_SERVER['HTTP_HOST'] ?? 'localhost';
+		$host  = preg_replace( '/[^A-Za-z0-9.:-]/', '', (string) $host );
 		$https = ( ! empty( $_SERVER['HTTPS'] ) && 'off' !== $_SERVER['HTTPS'] ) || ( $_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '' ) === 'https';
 		return ( $https ? 'https' : 'http' ) . '://' . $host;
 	}

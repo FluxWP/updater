@@ -32,12 +32,12 @@ Everything is set in the **/admin** panel; `config.php` is not needed.
 
 1. Create a subdomain (e.g. `updater.example.com`) as a plain PHP 7.4+ site and turn on SSL.
 2. Download `flx-update-server.zip` from [Releases](../../releases/latest) and extract it into the subdomain's root folder.
-3. Open `https://<subdomain>/admin` right away and complete **First-time setup** (username + password). Whoever does this first becomes the admin.
+3. Open `https://<subdomain>/admin` and complete **First-time setup** (setup token + username + password). The token is `FLX_UPDATE_SETUP_TOKEN` (at least 16 characters). If you do not set it, the server creates one, writes it once to the PHP error log (the Docker log) and to `data/.setup-token` (mode 0600, not served). It is not shown on the page. An account that already exists is unchanged.
 4. **GitHub** card: pick the private and public repositories, paste the token, then *Save and test*. It should show **Connected**.
    Token: GitHub › Settings › Developer settings › Fine-grained tokens, only the private repositories, **Contents: Read-only**. Public-only servers need no token.
 5. **Add site**: name, private packages (all or selected), channel, then *Generate key*. The key is shown **once**; copy it and check it with *Test this key*.
 6. On the WordPress site: install `flx-setup.zip` once, open **Setup › Settings**, paste the key and *Save and check*. The plugin uses `https://updater.fluxwp.com` by default; enter your own address if you run your own server. A site without a key sees only public packages.
-7. Optional, **instant publish**: *Generate secret*, then add it to the package repository under Settings › Secrets › Actions as `UPDATE_WEBHOOK_SECRET`. Without it a new version shows up within 5 minutes.
+7. Optional, **instant publish**: *Generate secret*, copy it once, then add it to the package repository under Settings › Secrets › Actions as `UPDATE_WEBHOOK_SECRET`. The panel and the admin API show only the last four characters after that. Without it a new version shows up within 5 minutes.
 
 To upgrade, extract the new zip over the old one. Settings live in `data/settings.json`, which is not in the zip. `data/` must be writable.
 
@@ -54,7 +54,7 @@ To upgrade, extract the new zip over the old one. Settings live in `data/setting
 - Only the key's sha256 is stored. A lost key cannot be recovered: delete the site and add it again.
 - **Issue a key to a connected site:** under Overview › Connected sites, a site that connected without a key gets an "Issue key" button. The site picks the key up on its next update check (or right away with "Test connection" under Setup › Settings). Needs FluxWP Panel (or FluxWP Panel 1.7.0+), which sends a random install ID only to this server; the key is handed only to a request carrying that ID, so a site that fakes another site's address cannot take it. An unclaimed key expires after 7 days.
 - **Enable/disable:** "Disable" turns a key off. A disabled key still identifies the site but only unlocks public packages; the site shows "key disabled on server".
-- **Scope:** "All private packages", or selected repositories and packages. Ticking "all" for a repository also covers packages added later.
+- **Scope:** "All private packages", or selected repositories and packages. Ticking "all" for a repository also covers packages added later. A new key starts with no private access (the panel still adds Flux Setup to a custom selection). A site record with no `packages` field does not see private packages; `"*"` still means all of them.
 
 ### Panel
 
@@ -76,7 +76,7 @@ The server configures wizard categories and each package's `category`, `order` a
 
 ### Zip storage
 
-`data/zips` keeps the last 5 versions of each package. An older version is fetched from the GitHub release again and deleted 24 hours after its last download. Cleanup runs after each download and once an hour; the limits are in /admin › Files. Nothing is deleted while GitHub is unreachable.
+`data/zips` keeps the last 5 versions of each package. A stored zip of the expected size is not downloaded again, including when several requests arrive together. An older version is fetched from the GitHub release again and deleted 24 hours after its last download. Cleanup runs after each download and once an hour; the limits are in /admin › Files. Nothing is deleted while GitHub is unreachable.
 
 ### Privacy: what a site sends
 
@@ -84,7 +84,7 @@ Every `/v1/check` carries the installed FluxWP packages and versions, the FluxWP
 
 FluxWP Panel 1.0.8+ adds the site address, WordPress and PHP version, time zone and language only when the admin opted in ("Help us improve FluxWP" in the setup wizard or FluxWP Panel › Settings), and sends `"usage": false` otherwise. Without opt-in the server stores none of those and identifies the site by its install ID. The country code is derived from the request's IP regardless of opt-in (the IP is not stored). When a site withdraws, its earlier record with the address is merged and dropped on the next check. Older clients without the `usage` field are treated as opted in.
 
-IP addresses are not written to the statistics. `data/access.log` keeps the IP only for failed key attempts (security) and drops lines older than 90 days. Daily counters are kept 120 days, site records 180 days after the last check.
+IP addresses are not written to the statistics or to `data/access.log`. A failed key attempt records the country only. Login and key failures are counted for 10 minutes under a salted hash that is not the IP; `access.log` drops lines older than 90 days. Daily counters are kept 120 days, site records 180 days after the last check.
 
 ### App updates
 
@@ -150,7 +150,7 @@ The main FluxWP repository's `tools/readme-media/README.md` documents capture an
 | `GET /v1/media/<slug>/<blob-id>.<ext>?expires=&site=&sig=` | Authorized, expiring GitHub icon or gallery image from `/v1/check`; served from the updater cache |
 | `POST /v1/webhook` | signed with `X-Hub-Signature-256`; clears the release cache |
 | `GET /v1/admin/info\|overview\|resources\|settings\|repos` | manager key (`X-FluxWP-Manager-Key` or `Authorization: Bearer`); panel data as JSON, `?lang=tr\|en`, `overview?r=7\|30\|90` |
-| `POST /v1/admin/action` | manager key; runs a panel action, body `{"action":"save_switch","switch":"lockdown","on":"1"}` (same fields as the panel forms). Errors: 401 `manager_key_invalid`, 400 `action_denied`, 422 validation |
+| `POST /v1/admin/action` | manager key; runs a panel action, body `{"action":"save_switch","switch":"lockdown","on":"1"}` (same fields as the panel forms). Errors: 401 `manager_key_invalid`, 429 `rate_limited`, 400 `action_denied`, 422 validation. `GET /v1/admin/settings` returns `webhook_secret` empty and `webhook_secret_hint` as the last four characters; `gen_webhook` returns the full secret once |
 | `POST /v1/admin/test-key` | manager key; `{"key":"flxu_…"}` → valid, active, visible packages |
 | `GET /admin` | admin panel (`/status` redirects here) |
 
@@ -166,8 +166,9 @@ Build pack **Dockerfile**, persistent storage `/var/www/html/data`. Settings can
 | `FLX_UPDATE_APP_REPO` | app repository (tags `v<version>`) |
 | `FLX_UPDATE_FLUXAPP_REPO` | FluxWP desktop repository, if not the package repository |
 | `FLX_UPDATE_SITES` | JSON: `{"<sha256>":{"name":"…","packages":"*","channel":"stable"}}` (read-only in the panel) |
-| `FLX_UPDATE_WEBHOOK_SECRET` | webhook secret |
+| `FLX_UPDATE_WEBHOOK_SECRET` | webhook secret (stored value is not shown again) |
 | `FLX_UPDATE_ADMIN_USER` / `FLX_UPDATE_ADMIN_PASSWORD` | panel login (instead of first setup); `FLX_UPDATE_ADMIN_PASSWORD_HASH` takes a `password_hash()` value |
+| `FLX_UPDATE_SETUP_TOKEN` | first-run setup token, at least 16 characters; if empty, one is written to the PHP error log and `data/.setup-token` |
 | `FLX_UPDATE_BASE_URL` | taken from the request if empty |
 | `FLX_UPDATE_CACHE_TTL` | release cache in seconds (300) |
 | `FLX_UPDATE_DATA_DIR` | default `./data` |

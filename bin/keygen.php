@@ -31,11 +31,11 @@ if ( '' === $name ) {
 
 $key  = 'flxu_' . bin2hex( random_bytes( 24 ) );
 $hash = hash( 'sha256', $key );
-$site = array( 'name' => $name, 'packages' => '*', 'channel' => 'stable' );
+$site = array( 'name' => $name, 'packages' => array(), 'channel' => 'stable' );
 
 echo "\n1) Sitenin wp-config.php dosyasına (anahtarın kendisi yalnız orada durur):\n\n";
 echo "   define( 'FLX_UPDATE_KEY', '" . $key . "' );\n\n";
-echo "2) Sunucuda FLX_UPDATE_SITES JSON'una eklenecek öğe:\n\n";
+echo "2) Sunucuda FLX_UPDATE_SITES JSON'una eklenecek öğe (packages boş: private paket yok; tümü için \"*\"):\n\n";
 echo '   "' . $hash . '": ' . json_encode( $site, JSON_UNESCAPED_UNICODE ) . "\n\n";
 echo "   (config.php kullanıyorsanız 'sites' içine:)\n";
 echo "   '" . $hash . "' => " . str_replace( "\n", '', var_export( $site, true ) ) . ",\n\n";
