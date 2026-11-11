@@ -83,6 +83,10 @@ final class AdminApi {
 	/* ------------------------------------------------------------------ */
 
 	private function auth(): void {
+		$retry = $this->server->auth_throttle( 'manager_key', false );
+		if ( $retry > 0 ) {
+			throw new HttpError( 'Too many failed attempts', 429, 'rate_limited', $retry );
+		}
 		$key = trim( (string) ( $_SERVER[ self::HEADER ] ?? '' ) );
 		if ( '' === $key && preg_match( '/^Bearer\s+(\S+)$/i', (string) ( $_SERVER['HTTP_AUTHORIZATION'] ?? ( $_SERVER['REDIRECT_HTTP_AUTHORIZATION'] ?? '' ) ), $m ) ) {
 			$key = $m[1];
@@ -96,7 +100,10 @@ final class AdminApi {
 			}
 		}
 		if ( ! $hit ) {
-			usleep( 400000 ); // Deneme-yanılmayı yavaşlatır.
+			$retry = $this->server->auth_throttle( 'manager_key', true );
+			if ( $retry > 0 ) {
+				throw new HttpError( 'Too many failed attempts', 429, 'rate_limited', $retry );
+			}
 			throw new HttpError( '' === $key ? 'Manager key required' : 'Invalid manager key', 401, 'manager_key_invalid' );
 		}
 		$this->key = $hit;
@@ -262,7 +269,7 @@ final class AdminApi {
 			$sites[] = array(
 				'hash'      => (string) $hash,
 				'name'      => (string) ( $conf['name'] ?? '' ),
-				'packages'  => $conf['packages'] ?? '*',
+				'packages'  => $conf['packages'] ?? array(),
 				'repos'     => array_values( (array) ( $conf['repos'] ?? array() ) ),
 				'channel'   => 'beta' === ( $conf['channel'] ?? '' ) ? 'beta' : 'stable',
 				'active'    => ! isset( $conf['active'] ) || (bool) $conf['active'],
@@ -289,21 +296,24 @@ final class AdminApi {
 			);
 		}
 
+		$wh_secret = (string) ( $this->config['webhook_secret'] ?? '' );
 		$out = array(
 			'ok'       => true,
 			'github'   => array(
-				'connected'       => '' === $gh_error,
-				'error'           => $gh_error,
-				'repo_errors'     => $this->server->repo_errors(),
-				'private_repos'   => $this->server->private_repos(),
-				'public_repos'    => $this->server->public_repos(),
-				'public_packages' => $this->server->public_packages(),
-				'app_repo'        => (string) ( $this->config['app_repo'] ?? '' ),
-				'fluxapp_repo'    => (string) ( $this->config['fluxapp_repo'] ?? '' ),
-				'token_set'       => '' !== $token,
-				'token_hint'      => '' !== $token ? substr( $token, -4 ) : '',
-				'webhook_secret'  => (string) ( $this->config['webhook_secret'] ?? '' ),
-				'base_url'        => $this->server->base_url(),
+				'connected'          => '' === $gh_error,
+				'error'              => $gh_error,
+				'repo_errors'        => $this->server->repo_errors(),
+				'private_repos'      => $this->server->private_repos(),
+				'public_repos'       => $this->server->public_repos(),
+				'public_packages'    => $this->server->public_packages(),
+				'app_repo'           => (string) ( $this->config['app_repo'] ?? '' ),
+				'fluxapp_repo'       => (string) ( $this->config['fluxapp_repo'] ?? '' ),
+				'token_set'          => '' !== $token,
+				'token_hint'         => '' !== $token ? substr( $token, -4 ) : '',
+				'webhook_secret_set'  => '' !== $wh_secret,
+				'webhook_secret_hint' => '' !== $wh_secret ? substr( $wh_secret, -4 ) : '',
+				'webhook_secret'      => '',
+				'base_url'           => $this->server->base_url(),
 			),
 			'packages' => $packages,
 			'updater_slugs' => Panel::UPDATER_SLUGS,
@@ -363,7 +373,7 @@ final class AdminApi {
 		list( $catalog, $stable ) = $this->catalogs();
 		$off  = isset( $found['active'] ) && ! $found['active'];
 		$site = array(
-			'packages' => $found['packages'] ?? '*',
+			'packages' => $found['packages'] ?? array(),
 			'repos'    => (array) ( $found['repos'] ?? array() ),
 			'channel'  => ( $found['channel'] ?? 'stable' ) === 'beta' ? 'beta' : 'stable',
 			'anon'     => $off,

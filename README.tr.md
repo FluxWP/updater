@@ -32,12 +32,12 @@ Tüm ayarlar **/admin** panelinden girilir; `config.php` gerekmez.
 
 1. Bir subdomain açın (ör. `updater.example.com`, normal PHP 7.4+ sitesi) ve SSL'i açın.
 2. [Releases](../../releases/latest) sayfasından `flx-update-server.zip`'i indirip subdomain'in kök klasörüne açın.
-3. Hemen `https://<subdomain>/admin` adresinde **İlk kurulum**'u yapın (kullanıcı adı + parola). İlk yapan yönetici olur.
+3. `https://<subdomain>/admin` adresinde **İlk kurulum**'u yapın (kurulum anahtarı + kullanıcı adı + parola). Anahtar `FLX_UPDATE_SETUP_TOKEN` (en az 16 karakter). Vermezseniz sunucu bir kez üretip PHP hata günlüğüne (Docker günlüğü) ve `data/.setup-token` dosyasına yazar (0600, webden açılmaz). Sayfada gösterilmez. Yönetici hesabı zaten varsa kurulum açılmaz.
 4. **GitHub** kartı: private ve public depoları seçin, token'ı yapıştırın, *Kaydet ve test et*. **Bağlı** görünmeli.
    Token: GitHub › Settings › Developer settings › Fine-grained tokens, yalnız private depolar, **Contents: Read-only**. Yalnız public depo sunacaksanız token gerekmez.
 5. **Site ekle**: ad, private paketler (hepsi ya da seçili), kanal, *Anahtar üret*. Anahtar **bir kez** gösterilir; kopyalayıp *Bu anahtarı test et* ile deneyin.
 6. Sitede: `flx-setup.zip`'i bir kez kurun, **Setup › Ayarlar**'da anahtarı yapıştırıp *Kaydet ve kontrol et*. Eklentinin varsayılan sunucusu `https://updater.fluxwp.com`; kendi sunucunuz varsa adresini yazın. Anahtarsız site yalnız public paketleri görür.
-7. İsteğe bağlı, **anında yayın**: *Secret üret*, sonra paket deposunda Settings › Secrets › Actions'a `UPDATE_WEBHOOK_SECRET` adıyla ekleyin. Yoksa yeni sürüm en geç 5 dakikada görünür.
+7. İsteğe bağlı, **anında yayın**: *Secret üret*, bir kez kopyalayın, sonra paket deposunda Settings › Secrets › Actions'a `UPDATE_WEBHOOK_SECRET` adıyla ekleyin. Sonrasında panel ve yönetici API'si yalnız son dört karakteri gösterir. Yoksa yeni sürüm en geç 5 dakikada görünür.
 
 Güncellemek için yeni zip'i üstüne açın. Ayarlar zip'te olmayan `data/settings.json`'da durur. `data/` yazılabilir olmalı.
 
@@ -54,7 +54,7 @@ Güncellemek için yeni zip'i üstüne açın. Ayarlar zip'te olmayan `data/sett
 - Sunucuda anahtarın yalnız sha256'sı durur. Kaybedilen anahtar geri alınamaz; siteyi silip yeniden ekleyin.
 - **Bağlı siteye anahtar ver:** Genel bakış › Bağlanan siteler'de anahtarsız bağlanan sitenin satırında "Anahtar ver" var. Site anahtarı bir sonraki kontrolde (ya da FluxWP Panel'de "Bağlantıyı test et" ile hemen) alır. FluxWP Panel 1.7.0+ gerekir: eklenti yalnız bu sunucuya rastgele bir kurulum kimliği gönderir, anahtar yalnız o kimliği taşıyan isteğe teslim edilir; site adresini taklit eden alamaz. 7 gün içinde alınmayan anahtarın süresi dolar.
 - **Aktif/pasif:** pasif anahtarlı site tanınır ama yalnız public paketleri görür; sitede "anahtar sunucuda pasif" yazar.
-- **Kapsam:** "Tüm private paketler" ya da seçilen depolar ve paketler. Bir depoda "tümü" işaretlenirse sonradan eklenen paketler de girer.
+- **Kapsam:** "Tüm private paketler" ya da seçilen depolar ve paketler. Bir depoda "tümü" işaretlenirse sonradan eklenen paketler de girer. Yeni anahtar private paket görmez (paneldeki özel seçime Flux Setup yine eklenir). `packages` alanı olmayan kayıt private paket görmez; `"*"` hâlâ tümüdür.
 
 ### Panel
 
@@ -76,7 +76,7 @@ Sihirbaz kategorileri ve paketlerin `category`, `order`, `rec` (önerilen) alanl
 
 ### Zip saklama
 
-`data/zips` paket başına son 5 sürümü tutar. Daha eski sürüm istenirse GitHub release'ten yeniden alınır ve son indirmeden 24 saat sonra silinir. Temizlik her indirmeden sonra ve saatte bir çalışır; sınırlar /admin › Dosyalar'da. GitHub okunamazken hiçbir dosya silinmez.
+`data/zips` paket başına son 5 sürümü tutar. Beklenen boyutta duran zip yeniden indirilmez; aynı anda gelen istekler de bekleyen kopyayı kullanır. Daha eski sürüm istenirse GitHub release'ten yeniden alınır ve son indirmeden 24 saat sonra silinir. Temizlik her indirmeden sonra ve saatte bir çalışır; sınırlar /admin › Dosyalar'da. GitHub okunamazken hiçbir dosya silinmez.
 
 ### Uygulama güncellemeleri
 
@@ -89,7 +89,7 @@ Her `/v1/check` isteğinde kurulu FluxWP paketleri ve sürümleri, FluxWP Panel 
 
 FluxWP Panel 1.0.8+ site adresini, WordPress ve PHP sürümünü, saat dilimini ve dili yalnız yönetici izin verdiyse ekler (kurulum sihirbazında ya da FluxWP Panel › Ayarlar'da "Ürünü geliştirmemize yardımcı olun"); izin yoksa `"usage": false` gönderir. İzin yokken sunucu bunların hiçbirini saklamaz ve siteyi kurulum kimliğiyle tanır. Ülke kodu izinden bağımsız olarak isteğin IP'sinden çıkarılır (IP saklanmaz). İzni geri alan sitenin adresli eski kaydı bir sonraki denetimde birleştirilip silinir. `usage` alanı göndermeyen eski istemciler izinli sayılır.
 
-IP adresi istatistiklere yazılmaz. `data/access.log` IP'yi yalnız hatalı anahtar denemelerinde (güvenlik) tutar, 90 günden eski satırları siler. Günlük sayaçlar 120 gün, site kayıtları son denetimden sonra 180 gün saklanır.
+IP adresi istatistiklere ve `data/access.log`'a yazılmaz. Hatalı anahtar denemesinde yalnız ülke kodu durur. Giriş ve anahtar hataları 10 dakika boyunca, IP olmayan tuzlu bir özette sayılır; `access.log` 90 günden eski satırları siler. Günlük sayaçlar 120 gün, site kayıtları son denetimden sonra 180 gün saklanır.
 
 ### Yönetici API'si: başka bir panelden yönetim (1.12.0)
 
@@ -147,7 +147,7 @@ Katalog üretme ve yeni ekran çekme akışı ana FluxWP deposunun `tools/readme
 | `GET /v1/media/<slug>/<blob-id>.<ext>?expires=&site=&sig=` | `/v1/check` yanıtındaki, izin denetimli ve süreli GitHub ikonu veya galeri görseli; Updater önbelleğinden dağıtılır |
 | `POST /v1/webhook` | `X-Hub-Signature-256` imzalı; release önbelleğini boşaltır |
 | `GET /v1/admin/info\|overview\|resources\|settings\|repos` | yönetici anahtarı (`X-FluxWP-Manager-Key` ya da `Authorization: Bearer`); panel verisi JSON, `?lang=tr\|en`, `overview?r=7\|30\|90` |
-| `POST /v1/admin/action` | yönetici anahtarı; panel işlemi çalıştırır, gövde `{"action":"save_switch","switch":"lockdown","on":"1"}` (panel formlarıyla aynı alanlar). Hatalar: 401 `manager_key_invalid`, 400 `action_denied`, 422 doğrulama |
+| `POST /v1/admin/action` | yönetici anahtarı; panel işlemi çalıştırır, gövde `{"action":"save_switch","switch":"lockdown","on":"1"}` (panel formlarıyla aynı alanlar). Hatalar: 401 `manager_key_invalid`, 429 `rate_limited`, 400 `action_denied`, 422 doğrulama. `GET /v1/admin/settings` `webhook_secret` alanını boş, `webhook_secret_hint` alanını son dört karakter döner; `gen_webhook` secret'ın tamamını bir kez döner |
 | `POST /v1/admin/test-key` | yönetici anahtarı; `{"key":"flxu_…"}` → geçerli mi, aktif mi, görünen paketler |
 | `GET /admin` | yönetim paneli (`/status` buraya yönlenir) |
 
@@ -163,8 +163,9 @@ Build pack **Dockerfile**, kalıcı depolama `/var/www/html/data`. Ayarlar yine 
 | `FLX_UPDATE_APP_REPO` | uygulama deposu (tag `v<sürüm>`) |
 | `FLX_UPDATE_FLUXAPP_REPO` | FluxWP masaüstü deposu, paket deposundan ayrıysa |
 | `FLX_UPDATE_SITES` | JSON: `{"<sha256>":{"name":"…","packages":"*","channel":"stable"}}` (panelde salt okunur) |
-| `FLX_UPDATE_WEBHOOK_SECRET` | webhook secret |
+| `FLX_UPDATE_WEBHOOK_SECRET` | webhook secret (kayıtlı değer bir daha gösterilmez) |
 | `FLX_UPDATE_ADMIN_USER` / `FLX_UPDATE_ADMIN_PASSWORD` | panel girişi (ilk kurulum yerine); `FLX_UPDATE_ADMIN_PASSWORD_HASH` `password_hash()` çıktısı alır |
+| `FLX_UPDATE_SETUP_TOKEN` | ilk kurulum anahtarı, en az 16 karakter; boşsa PHP hata günlüğüne ve `data/.setup-token` dosyasına yazılır |
 | `FLX_UPDATE_BASE_URL` | boşsa istekten bulunur |
 | `FLX_UPDATE_CACHE_TTL` | release önbelleği, sn (300) |
 | `FLX_UPDATE_DATA_DIR` | varsayılan `./data` |

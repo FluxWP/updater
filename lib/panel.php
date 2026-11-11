@@ -127,6 +127,7 @@ final class Panel {
 		$action = 'POST' === $method ? (string) ( $_POST['action'] ?? '' ) : '';
 
 		if ( ! $this->has_admin() ) {
+			$this->setup_token();
 			if ( 'setup' === $action ) {
 				$this->do_setup();
 				return;
@@ -172,25 +173,26 @@ final class Panel {
 	/** Yönlendirme kodlarının metinleri (panel ve API). */
 	private function messages( array $q ): array {
 		return array(
-			'github'  => array( __( 'GitHub ayarları kaydedildi.' ), 'ok' ),
-			'deleted' => array( __( 'Site silindi. O sitenin anahtarı artık çalışmaz.' ), 'ok' ),
-			'updated' => array( __( 'Site güncellendi.' ), 'ok' ),
-			'on'      => array( __( 'Anahtar aktif: site izinli private paketleri yeniden alır.' ), 'ok' ),
-			'off'     => array( __( 'Anahtar pasif: site yalnız public paketleri görür.' ), 'ok' ),
-			'noclient' => array( __( 'Bu siteye anahtar verilemedi: kayıt yok ya da sitede Flux Setup (veya Flux Updater 1.7.0+) yok.' ), 'err' ),
-			'flushed' => array( __( 'Paket listesi GitHub\'dan yeniden okundu.' ), 'ok' ),
-			'pw'      => array( __( 'Parola değiştirildi.' ), 'ok' ),
-			'webhook' => array( __( 'Webhook secret üretildi. GitHub\'a eklemeyi unutmayın.' ), 'ok' ),
-			'zips'    => array( __( 'Dosya saklama ayarı kaydedildi.' ), 'ok' ),
-			'log'     => array( sprintf( __( 'Erişim günlüğü temizlendi (%s).' ), self::size( (int) ( $q['b'] ?? 0 ) ) ), 'ok' ),
-			'switch'  => array( __( 'Dağıtım ayarı kaydedildi.' ), 'ok' ),
-			'pkgmeta' => array( __( 'Paketlerin kurulum sihirbazındaki yeri kaydedildi.' ), 'ok' ),
-			'cats'    => array( __( 'Kurulum sihirbazı kategorileri kaydedildi.' ), 'ok' ),
-			'georule' => array( __( 'Ülke erişimi kaydedildi.' ), 'ok' ),
-			'geodb'   => array( __( 'Ülke veritabanı güncellendi.' ), 'ok' ),
-			'geodel'  => array( __( 'Ülke veritabanı silindi.' ), 'ok' ),
-			'mkey_off' => array( __( 'Yönetici anahtarı silindi. O anahtarla artık yönetilemez.' ), 'ok' ),
-			'pruned'  => array( sprintf( __( '%d eski zip silindi (%s).' ), (int) ( $q['n'] ?? 0 ), self::size( (int) ( $q['b'] ?? 0 ) ) ), 'ok' ),
+			'github'        => array( __( 'GitHub ayarları kaydedildi.' ), 'ok' ),
+			'deleted'       => array( __( 'Site silindi. O sitenin anahtarı artık çalışmaz.' ), 'ok' ),
+			'updated'       => array( __( 'Site güncellendi.' ), 'ok' ),
+			'on'            => array( __( 'Anahtar aktif: site izinli private paketleri yeniden alır.' ), 'ok' ),
+			'off'           => array( __( 'Anahtar pasif: site yalnız public paketleri görür.' ), 'ok' ),
+			'noclient'      => array( __( 'Bu siteye anahtar verilemedi: kayıt yok ya da sitede Flux Setup (veya Flux Updater 1.7.0+) yok.' ), 'err' ),
+			'flushed'       => array( __( 'Paket listesi GitHub\'dan yeniden okundu.' ), 'ok' ),
+			'pw'            => array( __( 'Parola değiştirildi.' ), 'ok' ),
+			'webhook'       => array( __( 'Webhook secret üretildi. GitHub\'a eklemeyi unutmayın.' ), 'ok' ),
+			'webhook_saved' => array( __( 'Webhook secret kaydedildi.' ), 'ok' ),
+			'zips'          => array( __( 'Dosya saklama ayarı kaydedildi.' ), 'ok' ),
+			'log'           => array( sprintf( __( 'Erişim günlüğü temizlendi (%s).' ), self::size( (int) ( $q['b'] ?? 0 ) ) ), 'ok' ),
+			'switch'        => array( __( 'Dağıtım ayarı kaydedildi.' ), 'ok' ),
+			'pkgmeta'       => array( __( 'Paketlerin kurulum sihirbazındaki yeri kaydedildi.' ), 'ok' ),
+			'cats'          => array( __( 'Kurulum sihirbazı kategorileri kaydedildi.' ), 'ok' ),
+			'georule'       => array( __( 'Ülke erişimi kaydedildi.' ), 'ok' ),
+			'geodb'         => array( __( 'Ülke veritabanı güncellendi.' ), 'ok' ),
+			'geodel'        => array( __( 'Ülke veritabanı silindi.' ), 'ok' ),
+			'mkey_off'      => array( __( 'Yönetici anahtarı silindi. O anahtarla artık yönetilemez.' ), 'ok' ),
+			'pruned'        => array( sprintf( __( '%d eski zip silindi (%s).' ), (int) ( $q['n'] ?? 0 ), self::size( (int) ( $q['b'] ?? 0 ) ) ), 'ok' ),
 		);
 	}
 
@@ -248,9 +250,13 @@ final class Panel {
 					}
 					$changes['public_packages'] = $pp ? implode( ', ', array_unique( $pp ) ) : '-';
 				}
-				$token   = trim( (string) ( $_POST['github_token'] ?? '' ) );
+				$token = trim( (string) ( $_POST['github_token'] ?? '' ) );
 				if ( '' !== $token ) {
 					$changes['github_token'] = $token;
+				}
+				$wh_secret = trim( (string) ( $_POST['webhook_secret'] ?? '' ) );
+				if ( '' !== $wh_secret ) {
+					$changes['webhook_secret'] = $wh_secret;
 				}
 				Settings::update( $this->data_dir, $changes );
 				$this->server->flush_cache();
@@ -258,8 +264,23 @@ final class Panel {
 				return;
 
 			case 'gen_webhook':
-				Settings::update( $this->data_dir, array( 'webhook_secret' => bin2hex( random_bytes( 24 ) ) ) );
-				$this->redirect( 'webhook' );
+				$secret = bin2hex( random_bytes( 24 ) );
+				Settings::update( $this->data_dir, array( 'webhook_secret' => $secret ) );
+				$this->config['webhook_secret'] = $secret;
+				$this->notice( __( 'Webhook secret üretildi. GitHub\'a eklemeyi unutmayın.' ) );
+				if ( null !== $this->api ) {
+					$this->api['msg'] = 'webhook';
+				}
+				$this->page( __( 'Panel' ), array( $this, 'view_dashboard' ), array( 'new_webhook_secret' => $secret ) );
+				return;
+
+			case 'save_webhook':
+				$wh_secret = trim( (string) ( $_POST['webhook_secret'] ?? '' ) );
+				if ( '' !== $wh_secret ) {
+					Settings::update( $this->data_dir, array( 'webhook_secret' => $wh_secret ) );
+					$this->config['webhook_secret'] = $wh_secret;
+				}
+				$this->redirect( 'webhook_saved' );
 				return;
 
 			case 'flush':
@@ -449,7 +470,93 @@ final class Panel {
 		return '' !== $u ? $u : 'admin';
 	}
 
+	private function setup_token_path(): string {
+		return $this->data_dir . '/.setup-token';
+	}
+
+	private function read_setup_token( string $file ): string {
+		if ( ! is_file( $file ) ) {
+			return '';
+		}
+		$tok = trim( (string) @file_get_contents( $file ) );
+		return strlen( $tok ) >= 16 ? $tok : '';
+	}
+
+	/**
+	 * İlk kurulum anahtarı. FLX_UPDATE_SETUP_TOKEN / config en az 16 karakterse o;
+	 * yoksa data/.setup-token (0600, webden kapalı) bir kez üretilir ve PHP hata
+	 * günlüğüne yazılır (Docker çıktısında görünür). Sayfada gösterilmez.
+	 */
+	private function setup_token(): string {
+		$configured = trim( (string) ( $this->config['setup_token'] ?? '' ) );
+		if ( '' !== $configured ) {
+			return strlen( $configured ) >= 16 ? $configured : '';
+		}
+		$file = $this->setup_token_path();
+		$tok  = $this->read_setup_token( $file );
+		if ( '' !== $tok ) {
+			return $tok;
+		}
+		if ( ! is_dir( $this->data_dir ) && ! @mkdir( $this->data_dir, 0750, true ) && ! is_dir( $this->data_dir ) ) {
+			return '';
+		}
+		$lock = @fopen( $file . '.lock', 'c' );
+		if ( $lock ) {
+			flock( $lock, LOCK_EX );
+		}
+		try {
+			clearstatcache( true, $file );
+			$tok = $this->read_setup_token( $file );
+			if ( '' !== $tok ) {
+				return $tok;
+			}
+			$tok = bin2hex( random_bytes( 24 ) );
+			$tmp = $file . '.' . getmypid() . '.tmp';
+			if ( false === @file_put_contents( $tmp, $tok . "\n" ) ) {
+				return '';
+			}
+			@chmod( $tmp, 0600 );
+			if ( ! @rename( $tmp, $file ) ) {
+				@unlink( $tmp );
+				return '';
+			}
+			@chmod( $file, 0600 );
+			error_log( '[flx-update] setup token created (not shown in the panel): ' . $tok );
+			return $tok;
+		} finally {
+			if ( $lock ) {
+				flock( $lock, LOCK_UN );
+				fclose( $lock );
+			}
+		}
+	}
+
 	private function do_setup(): void {
+		$retry = $this->server->auth_throttle( 'setup', false );
+		if ( $retry > 0 ) {
+			http_response_code( 429 );
+			header( 'Retry-After: ' . $retry );
+			$this->notice( __( 'Çok fazla başarısız deneme. Lütfen biraz bekleyip tekrar deneyin.' ), 'err' );
+			$this->page( __( 'Kurulum' ), array( $this, 'view_setup' ) );
+			return;
+		}
+		$expected = $this->setup_token();
+		$given    = trim( (string) ( $_POST['setup_token'] ?? '' ) );
+		// Sabit uzunlukta özet: hash_equals farklı boyda girdide süreyi sızdırmaz.
+		$match = strlen( $expected ) >= 16 && hash_equals( hash( 'sha256', $expected, true ), hash( 'sha256', $given, true ) );
+		if ( ! $match ) {
+			$retry = $this->server->auth_throttle( 'setup', true );
+			if ( $retry > 0 ) {
+				http_response_code( 429 );
+				header( 'Retry-After: ' . $retry );
+				$this->notice( __( 'Çok fazla başarısız deneme. Lütfen biraz bekleyip tekrar deneyin.' ), 'err' );
+			} else {
+				http_response_code( 403 );
+				$this->notice( __( 'Kurulum anahtarı geçersiz.' ), 'err' );
+			}
+			$this->page( __( 'Kurulum' ), array( $this, 'view_setup' ) );
+			return;
+		}
 		$user = trim( (string) ( $_POST['user'] ?? '' ) );
 		$p1   = (string) ( $_POST['password'] ?? '' );
 		$p2   = (string) ( $_POST['password2'] ?? '' );
@@ -471,19 +578,36 @@ final class Panel {
 			$this->page( __( 'Kurulum' ), array( $this, 'view_setup' ) );
 			return;
 		}
+		@unlink( $this->setup_token_path() );
+		@unlink( $this->setup_token_path() . '.lock' );
 		$this->config = array_merge( $this->config, $data );
 		$this->login_as( $user );
 		$this->redirect();
 	}
 
 	private function do_login(): void {
+		$retry = $this->server->auth_throttle( 'login', false );
+		if ( $retry > 0 ) {
+			http_response_code( 429 );
+			header( 'Retry-After: ' . $retry );
+			$this->notice( __( 'Çok fazla başarısız giriş denemesi. Lütfen biraz bekleyip tekrar deneyin.' ), 'err' );
+			$this->page( __( 'Giriş' ), array( $this, 'view_login' ) );
+			return;
+		}
 		$user = (string) ( $_POST['user'] ?? '' );
 		$pass = (string) ( $_POST['password'] ?? '' );
 		$hash = (string) $this->config['admin_password_hash'];
 		$ok   = '' !== $hash ? password_verify( $pass, $hash ) : hash_equals( (string) $this->config['admin_password'], $pass );
 		if ( ! $ok || ! hash_equals( $this->admin_user(), $user ) ) {
-			sleep( 1 );
-			$this->notice( __( 'Kullanıcı adı veya parola hatalı.' ), 'err' );
+			$retry = $this->server->auth_throttle( 'login', true );
+			if ( $retry > 0 ) {
+				http_response_code( 429 );
+				header( 'Retry-After: ' . $retry );
+				$this->notice( __( 'Çok fazla başarısız giriş denemesi. Lütfen biraz bekleyip tekrar deneyin.' ), 'err' );
+			} else {
+				http_response_code( 401 );
+				$this->notice( __( 'Kullanıcı adı veya parola hatalı.' ), 'err' );
+			}
 			$this->page( __( 'Giriş' ), array( $this, 'view_login' ) );
 			return;
 		}
@@ -558,7 +682,7 @@ final class Panel {
 
 	/** Seçilen depolar (bütünüyle, sonradan eklenen paketler dahil). "Tümü" seçiliyse boş. */
 	private function repos_from_post(): array {
-		if ( 'all' === ( $_POST['scope'] ?? 'all' ) ) {
+		if ( 'all' === ( $_POST['scope'] ?? 'some' ) ) {
 			return array();
 		}
 		$private = array_map( 'strtolower', $this->server->private_repos() );
@@ -572,7 +696,7 @@ final class Panel {
 	}
 
 	private function packages_from_post() {
-		if ( 'all' === ( $_POST['scope'] ?? 'all' ) ) {
+		if ( 'all' === ( $_POST['scope'] ?? 'some' ) ) {
 			return '*';
 		}
 		$out = array();
@@ -773,9 +897,10 @@ final class Panel {
 		return 'key-' . substr( $hash, 0, 15 );
 	}
 
-	/** İzin özeti: "Tüm private paketler" ya da depolar + paketler. */
+	/** İzin özeti: "Tüm private paketler" ya da depolar + paketler. Alan yoksa erişim yok. */
 	private function scope_label( array $conf, array $catalog ): string {
-		if ( '*' === ( $conf['packages'] ?? '*' ) ) {
+		$packages = $conf['packages'] ?? array();
+		if ( '*' === $packages ) {
 			return self::e( __( 'Tüm private paketler' ) );
 		}
 		$parts = array();
@@ -783,7 +908,7 @@ final class Panel {
 			$parts[] = '<b>' . self::e( $r ) . '</b> ' . self::e( __( '(tümü)' ) );
 		}
 		$in = array_map( 'strtolower', (array) ( $conf['repos'] ?? array() ) );
-		foreach ( (array) $conf['packages'] as $slug ) {
+		foreach ( (array) $packages as $slug ) {
 			$r = $catalog[ $slug ] ?? null;
 			if ( ! $r && in_array( $slug, self::UPDATER_SLUGS, true ) ) {
 				continue; // Her seçime kendiliğinden eklenir; katalogda yoksa gösterme.
@@ -802,6 +927,14 @@ final class Panel {
 
 	private static function e( $s ): string {
 		return htmlspecialchars( (string) $s, ENT_QUOTES, 'UTF-8' );
+	}
+
+	/** Kayıtlı secret: sonda dört karakter. Kısa değerin tamamı gösterilmez. */
+	private static function secret_mask( string $secret ): string {
+		if ( strlen( $secret ) < 8 ) {
+			return '••••';
+		}
+		return '••••' . substr( $secret, -4 );
 	}
 
 	private function notice( string $msg, string $type = 'ok' ): void {
@@ -1103,12 +1236,20 @@ var L = <?php echo json_encode( array(
 	}
 
 	public function view_setup( array $args ): void {
+		$configured = trim( (string) ( $this->config['setup_token'] ?? '' ) );
+		$ready      = strlen( $this->setup_token() ) >= 16;
 		?>
 		<div class="card" style="max-width:460px">
 			<h2><?php echo __( 'İlk kurulum' ); ?></h2>
-			<p class="muted"><?php echo __( 'Bu panelin yönetici hesabını oluşturun. Kurulum bir kez yapılır; sonrasında bu sayfa giriş ekranına döner.' ); ?></p>
+			<p class="muted"><?php echo __( 'Yönetici hesabı için kurulum anahtarı gerekir. Anahtarı FLX_UPDATE_SETUP_TOKEN ile verin. Vermediyseniz sunucu bir kez üretip PHP hata günlüğüne yazar (Docker günlüğünde görünür) ve data/.setup-token dosyasına koyar. Dosya webden açılmaz; anahtar bu sayfada yazmaz. Kurulum bir kez yapılır.' ); ?></p>
+			<?php if ( '' !== $configured && ! $ready ) : ?>
+				<p class="notice err"><?php echo __( 'FLX_UPDATE_SETUP_TOKEN en az 16 karakter olmalı.' ); ?></p>
+			<?php elseif ( ! $ready ) : ?>
+				<p class="notice err"><?php echo __( 'data/ klasörüne yazılamadı. Klasörün yazılabilir olduğundan emin olun.' ); ?></p>
+			<?php endif; ?>
 			<form method="post" autocomplete="off">
 				<input type="hidden" name="action" value="setup">
+				<label><?php echo __( 'Kurulum anahtarı' ); ?></label><input type="password" name="setup_token" required autocomplete="off" minlength="16">
 				<label><?php echo __( 'Kullanıcı adı' ); ?></label><input type="text" name="user" value="admin" required>
 				<label><?php echo __( 'Parola (en az 10 karakter)' ); ?></label><input type="password" name="password" required minlength="10">
 				<label><?php echo __( 'Parola tekrar' ); ?></label><input type="password" name="password2" required minlength="10">
@@ -1259,7 +1400,7 @@ var L = <?php echo json_encode( array(
 					<?php echo $this->hidden( 'add_site' ); ?>
 					<label><?php echo __( 'Site adı' ); ?></label>
 					<input type="text" name="name" placeholder="<?php echo $e( __( 'ör. Örnek Site' ) ); ?>" required>
-					<?php $this->packages_field( $catalog, '*' ); ?>
+					<?php $this->packages_field( $catalog, array() ); ?>
 					<label><?php echo __( 'Kanal' ); ?></label>
 					<select name="channel"><option value="stable"><?php echo __( 'Kararlı sürümler' ); ?></option><option value="beta"><?php echo __( 'Beta dahil' ); ?></option></select>
 					<p><button class="btn"><?php echo __( 'Anahtar üret' ); ?></button></p>
@@ -1330,7 +1471,7 @@ var L = <?php echo json_encode( array(
 										<?php echo $this->hidden( 'update_site' ); ?>
 										<input type="hidden" name="hash" value="<?php echo $e( $hash ); ?>">
 										<label><?php echo __( 'Ad' ); ?></label><input type="text" name="name" value="<?php echo $e( $conf['name'] ?? '' ); ?>">
-										<?php $this->packages_field( $catalog, $conf['packages'] ?? '*', (array) ( $conf['repos'] ?? array() ) ); ?>
+										<?php $this->packages_field( $catalog, $conf['packages'] ?? array(), (array) ( $conf['repos'] ?? array() ) ); ?>
 										<label><?php echo __( 'Kanal' ); ?></label>
 										<select name="channel"><option value="stable"><?php echo __( 'Kararlı' ); ?></option><option value="beta" <?php echo 'beta' === ( $conf['channel'] ?? '' ) ? 'selected' : ''; ?>><?php echo __( 'Beta dahil' ); ?></option></select>
 										<p><button class="btn sm"><?php echo __( 'Kaydet' ); ?></button></p>
@@ -1416,8 +1557,13 @@ var L = <?php echo json_encode( array(
 			<div class="card">
 				<h2><?php echo __( 'Anında yayın (isteğe bağlı)' ); ?></h2>
 				<p class="small muted"><?php echo _f( 'Yeni sürüm en geç 5 dakikada görünür. Anında görünsün isterseniz bu secret\'ı paket deposunun Settings › Secrets › Actions bölümüne <code>UPDATE_WEBHOOK_SECRET</code> adıyla ekleyin; repo değişkeni <code>UPDATE_SERVER</code> = <code>%s</code>.', $e( $this->server->base_url() ) ); ?></p>
-				<?php if ( ! empty( $this->config['webhook_secret'] ) ) : ?>
-					<pre><?php echo $e( $this->config['webhook_secret'] ); ?></pre>
+				<?php if ( ! empty( $args['new_webhook_secret'] ) ) : ?>
+					<p><?php echo __( '<b>Bu secret bir daha gösterilmez.</b> Şimdi kopyalayıp GitHub\'a ekleyin.' ); ?></p>
+					<pre class="key" id="newwh"><?php echo $e( (string) $args['new_webhook_secret'] ); ?></pre>
+					<p><button class="btn sec sm" type="button" onclick="navigator.clipboard.writeText(document.getElementById('newwh').textContent);this.textContent=<?php echo $e( json_encode( __( 'Kopyalandı' ), JSON_UNESCAPED_UNICODE ) ); ?>"><?php echo __( 'Secret\'ı kopyala' ); ?></button></p>
+				<?php elseif ( '' !== (string) $this->config['webhook_secret'] ) : ?>
+					<p><code><?php echo $e( self::secret_mask( (string) $this->config['webhook_secret'] ) ); ?></code></p>
+					<p class="small muted"><?php echo __( 'Kayıtlı secret\'ın tamamı gösterilmez. Değiştirmek için yenisini üretin.' ); ?></p>
 				<?php endif; ?>
 				<form method="post"><?php echo $this->hidden( 'gen_webhook' ); ?><button class="btn sec sm"><?php echo empty( $this->config['webhook_secret'] ) ? __( 'Secret üret' ) : __( 'Yeni secret üret' ); ?></button></form>
 			</div>
@@ -2146,7 +2292,7 @@ var L = <?php echo json_encode( array(
 		}
 		$off     = isset( $found['active'] ) && ! $found['active'];
 		$site    = array(
-			'packages' => $found['packages'] ?? '*',
+			'packages' => $found['packages'] ?? array(),
 			'repos'    => (array) ( $found['repos'] ?? array() ),
 			'channel'  => ( $found['channel'] ?? 'stable' ) === 'beta' ? 'beta' : 'stable',
 			'anon'     => $off,

@@ -15,10 +15,12 @@ return array(
 	'admin_user'          => 'admin',
 	'admin_password'      => '',   // /admin parolası, en az 10 karakter (ya da admin_password_hash)
 	'admin_password_hash' => '',   // php bin/keygen.php --password
+	'setup_token'         => '',   // ilk kurulum, en az 16 karakter; boşsa data/.setup-token ve PHP hata günlüğü
 
 	// Anahtar = site anahtarının sha256'sı. Üretmek: /admin › "Site ekle"
 	// ya da SSH varsa php bin/keygen.php "Site adı".
-	// packages: '*' ya da array( 'fluxwp', 'flx-donate' ); channel: 'stable' | 'beta'.
+	// packages boş ya da yoksa private paket yok; '*' tüm private paketler.
+	// channel: 'stable' | 'beta'.
 	'sites' => array(
 		// 'a1b2…' => array( 'name' => 'Örnek Vakfı', 'packages' => '*', 'channel' => 'stable' ),
 	),

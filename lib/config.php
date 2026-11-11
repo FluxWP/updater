@@ -15,6 +15,7 @@
  *   FLX_UPDATE_ADMIN_USER            /admin kullanıcı adı (varsayılan admin)
  *   FLX_UPDATE_ADMIN_PASSWORD_HASH   password_hash() çıktısı  (ya da)
  *   FLX_UPDATE_ADMIN_PASSWORD        düz parola
+ *   FLX_UPDATE_SETUP_TOKEN           ilk kurulum anahtarı, en az 16 karakter (boşsa data/.setup-token + PHP hata günlüğü)
  *   FLX_UPDATE_DATA_DIR              yazılabilir klasör (varsayılan ./data)
  *   FLX_UPDATE_CACHE_TTL             saniye (varsayılan 300)
  */
@@ -54,6 +55,7 @@ function load_config( string $root ): array {
 		'admin_user'          => (string) $env( 'FLX_UPDATE_ADMIN_USER', 'admin' ),
 		'admin_password_hash' => (string) $env( 'FLX_UPDATE_ADMIN_PASSWORD_HASH' ),
 		'admin_password'      => (string) $env( 'FLX_UPDATE_ADMIN_PASSWORD' ),
+		'setup_token'         => (string) $env( 'FLX_UPDATE_SETUP_TOKEN' ),
 		'sites'               => $sites,
 		'data_dir'            => (string) $env( 'FLX_UPDATE_DATA_DIR', $root . '/data' ),
 	);

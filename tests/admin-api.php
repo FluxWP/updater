@@ -79,15 +79,26 @@ try {
 	same( $s['manager_keys'][0]['current'], true, 'Settings must mark the calling key' );
 	same( isset( $s['github']['token'] ), false, 'The GitHub token is never returned' );
 
+	list( $code, $limited ) = call( $dir, 'POST', 'action', $key, array( 'action' => 'add_site', 'name' => 'Limited' ) );
+	$stored = Settings::load( $dir )['sites'][ hash( 'sha256', (string) ( $limited['data']['new_key'] ?? '' ) ) ] ?? null;
+	same( is_array( $stored ) ? $stored['packages'] : null, array( 'flx-setup' ), 'A new key without a scope must not receive every private package' );
+
+	list( $code, $gen ) = call( $dir, 'POST', 'action', $key, array( 'action' => 'gen_webhook' ) );
+	$once = (string) ( $gen['data']['new_webhook_secret'] ?? '' );
+	same( 1 === preg_match( '/^[a-f0-9]{48}$/', $once ), true, 'Generating a webhook secret returns it once' );
+	list( $code, $s ) = call( $dir, 'GET', 'settings', $key );
+	same( $s['github']['webhook_secret'], '', 'Settings must not return the saved webhook secret' );
+	same( $s['github']['webhook_secret_set'], true, 'Settings must report that a webhook secret exists' );
+	same( $s['github']['webhook_secret_hint'], substr( $once, -4 ), 'Settings must return only a hint' );
+
 	call( $dir, 'POST', 'action', $key, array( 'action' => 'revoke_manager_key', 'hash' => hash( 'sha256', $key ) ) );
 	same( call( $dir, 'GET', 'info', $key )[0], 401, 'A revoked key stops working' );
 	echo "Admin API checks passed.\n";
 } finally {
-	foreach ( glob( $dir . '/*' ) as $file ) {
-		unlink( $file );
-	}
-	foreach ( glob( $dir . '/.*.lock' ) ?: array() as $file ) {
-		unlink( $file );
+	foreach ( array_merge( glob( $dir . '/*' ) ?: array(), glob( $dir . '/.*' ) ?: array() ) as $file ) {
+		if ( is_file( $file ) ) {
+			unlink( $file );
+		}
 	}
 	@rmdir( $dir );
 }
