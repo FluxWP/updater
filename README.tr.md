@@ -58,7 +58,7 @@ Güncellemek için yeni zip'i üstüne açın. Ayarlar zip'te olmayan `data/sett
 
 ### Panel
 
-- **Genel bakış:** son 7/30/90 günde güncelleme denetleyen siteler (anahtarlı ve anahtarsız), kontrol, indirme, aktarılan veri, günlük grafik, paket başına kurulum, ülke haritası ve bağlanan siteler. `data/stats.json`'da durur (günlük toplamlar 120 gün, siteler son görülmeden 180 gün). IP saklanmaz; ülke istek anında IP'den bulunur (aşağıda *Ülke ve güvenlik*).
+- **Genel bakış:** son 7/30/90 günde güncelleme denetleyen siteler (anahtarlı ve anahtarsız), kontrol, indirme, aktarılan veri, günlük grafik, paket başına kurulum, ülke haritası ve bağlanan siteler. `data/stats.json`'da durur (günlük toplamlar 120 gün, siteler son görülmeden 180 gün). Her denetim `data/stats.journal` dosyasına eklenir ve toplu olarak, ayrıca panel ya da yönetici API istatistiği okuyunca, bu dosyaya katlanır. Son katlanan sıra numarası saklanır; çökme yüzünden kesilmemiş günlük ikinci kez sayılmaz. IP saklanmaz; ülke istek anında IP'den bulunur (aşağıda *Ülke ve güvenlik*).
 - **Kaynaklar:** disk, `data/` dağılımı, GitHub API kotası, paket önbelleğinin yaşı, PHP sınırları. Eski zipler ve erişim günlüğü buradan temizlenir.
 - **Depo seçici:** private, public ve uygulama depoları, token'ın gördüğü listeden etiket olarak seçilir. Listede olmayan `owner/repo` yazılıp Enter ile eklenir.
 - **Dil:** İngilizce (varsayılan) ve Türkçe; üstteki EN/TR ile değişir.
@@ -67,6 +67,7 @@ Güncellemek için yeni zip'i üstüne açın. Ayarlar zip'te olmayan `data/sett
 
 - Public paketler anahtarsız sunulur, beta sürümleri hariç. Anahtar varsa aynı yanıta anahtarın private paketleri eklenir.
 - Bir depo okunamazsa paketleri son bilinen listeden gelir, GitHub kartında "Okunamadı" çıkar.
+- Paket listesinin önbelleği dolunca tek istek GitHub'ı yeniden okur. Diğer istekler önceki listeyi beklemeden sunar. Liste hiç yoksa diğerleri o okumayı en çok 20 saniye bekler, GitHub'a kendileri gitmez. Okuma başarısızsa önceki liste kalır ve 30 saniye sonra yeniden denenir. Webhook ve "Paketleri yeniden oku" yine hemen okutur.
 - `/v1/check` her paket için `requires_plugins` döndürür (`Requires Plugins:` başlığı); FluxWP Panel eksik eklentileri birlikte kurar.
 - Sürümünde `-` olan (ör. `1.3.0-beta.1`) yalnız beta kanalında görünür.
 
