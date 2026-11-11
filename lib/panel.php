@@ -755,31 +755,24 @@ final class Panel {
 	}
 
 	/**
-	 * "Bağlanan siteler"den anahtar ver: anahtar kurulum kimliğine bağlanır, site bir sonraki
-	 * kontrolde kendiliğinden alır (Flux Updater 1.7.0+). Varsayılan izin boş; yönetici seçer.
+	 * "Bağlanan siteler"den anahtar ver: yalnız seçilen kaydın kurulum kimliğine bağlanır.
+	 * Teslim tek kullanımlıktır ve CLAIM_HOURS içinde alınmazsa düşer. Varsayılan izin boş.
 	 */
 	private function do_issue_key(): void {
 		$id = (string) ( $_POST['client'] ?? '' );
-		$c  = preg_match( '/^u[a-f0-9]{15}$/', $id ) ? $this->server->stats()->client( $id ) : null;
-		$ih = (string) ( $c['ih'] ?? '' );
-		if ( ! $c || ! preg_match( '/^[a-f0-9]{64}$/', $ih ) ) {
+		$c  = preg_match( '/^i[a-f0-9]{15}$/', $id ) ? $this->server->stats()->client( $id ) : null;
+		if ( ! is_array( $c ) || ! Stats::bound_install( $id, $c ) ) {
 			$this->redirect( 'noclient' );
 			return;
 		}
-		$sites = $this->panel_sites();
-		foreach ( $sites as $h => $conf ) {
-			// Aynı kuruluma verilmiş, henüz alınmamış eski anahtar yenisiyle değişir.
-			if ( ( $conf['pending']['ih'] ?? '' ) === $ih ) {
-				unset( $sites[ $h ] );
-			}
-		}
+		$ih    = (string) $c['ih'];
 		$nonce = bin2hex( random_bytes( 8 ) );
 		$key   = Server::derive_key( $this->secret(), $ih, $nonce );
 		$hash  = hash( 'sha256', $key );
 		$url   = (string) ( $c['url'] ?? '' );
 		$name  = (string) parse_url( $url, PHP_URL_HOST );
 		$name  = preg_replace( '/^www\./', '', $name ) . rtrim( (string) parse_url( $url, PHP_URL_PATH ), '/' );
-		$sites[ $hash ] = array(
+		$row   = array(
 			'name'     => mb_substr( '' !== $name ? $name : 'Site', 0, 80 ),
 			'packages' => array(),
 			'repos'    => array(),
@@ -789,12 +782,41 @@ final class Panel {
 			'pending'  => array(
 				'ih'  => $ih,
 				'n'   => $nonce,
-				'exp' => time() + Server::CLAIM_DAYS * DAY_SECONDS,
+				'exp' => time() + Server::CLAIM_HOURS * 3600,
+				'url' => mb_substr( $url, 0, 200 ),
 			),
 		);
-		Settings::update( $this->data_dir, array( 'sites' => $sites ) );
-		$this->config['sites'][ $hash ] = $sites[ $hash ] + array( 'source' => 'panel' );
-		$this->page( __( 'Panel' ), array( $this, 'view_dashboard' ), array( 'new_key' => $key, 'new_name' => $sites[ $hash ]['name'], 'issued' => $hash ) );
+		Settings::modify(
+			$this->data_dir,
+			static function ( array $data ) use ( $ih, $hash, $row ) {
+				$sites = is_array( $data['sites'] ?? null ) ? $data['sites'] : array();
+				foreach ( $sites as $h => $conf ) {
+					if ( ! is_array( $conf ) ) {
+						continue;
+					}
+					$p   = is_array( $conf['pending'] ?? null ) ? $conf['pending'] : null;
+					$pih = (string) ( $p['ih'] ?? '' );
+					if ( 64 === strlen( $pih ) && hash_equals( $pih, $ih ) ) {
+						unset( $sites[ $h ] );
+					}
+				}
+				$sites[ $hash ] = $row;
+				$data['sites']  = $sites;
+				return $data;
+			}
+		);
+		foreach ( $this->config['sites'] as $h => $conf ) {
+			if ( ! is_array( $conf ) ) {
+				continue;
+			}
+			$p   = is_array( $conf['pending'] ?? null ) ? $conf['pending'] : null;
+			$pih = (string) ( $p['ih'] ?? '' );
+			if ( 64 === strlen( $pih ) && hash_equals( $pih, $ih ) ) {
+				unset( $this->config['sites'][ $h ] );
+			}
+		}
+		$this->config['sites'][ $hash ] = $row + array( 'source' => 'panel' );
+		$this->page( __( 'Panel' ), array( $this, 'view_dashboard' ), array( 'new_key' => $key, 'new_name' => $row['name'], 'issued' => $hash ) );
 	}
 
 	/** Acil durdurma ve anahtarsız dağıtım anahtarları. */
@@ -1312,7 +1334,7 @@ var L = <?php echo json_encode( array(
 			<div class="card" style="border-color:#e6cf7a">
 				<h2><?php echo __( 'Yeni site anahtarı:' ); ?> <?php echo $e( $args['new_name'] ); ?></h2>
 				<?php if ( ! empty( $args['issued'] ) ) : ?>
-				<p><?php echo $e( _f( 'Site bu anahtarı bir sonraki güncelleme kontrolünde kendiliğinden alır (%d gün içinde; hemen almak için sitede Setup › Ayarlar › "Bağlantıyı test et"). Elle girmeniz gerekmez.', Server::CLAIM_DAYS ) ); ?></p>
+				<p><?php echo $e( _f( 'Site bu anahtarı bir sonraki güncelleme kontrolünde kendiliğinden alır (%d saat içinde, yalnız bu kurulum kimliği ve bir kez). Hemen almak için sitede Setup › Ayarlar › "Bağlantıyı test et". Elle girmeniz gerekmez.', Server::CLAIM_HOURS ) ); ?></p>
 				<p><b><?php echo __( 'Şimdi erişimini seçin:' ); ?></b> <a href="#<?php echo $e( self::key_anchor( (string) $args['issued'] ) ); ?>"><?php echo __( 'Anahtarlı siteler' ); ?> › <?php echo $e( $args['new_name'] ); ?></a>. <?php echo __( 'Seçene kadar site yalnız public paketleri görür.' ); ?></p>
 				<details><summary class="small"><?php echo __( 'Anahtarı elle girmek için göster' ); ?></summary>
 				<?php endif; ?>
@@ -1864,7 +1886,7 @@ var L = <?php echo json_encode( array(
 				<p class="empty"><?php echo __( 'Bu aralıkta güncelleme denetleyen site yok.' ); ?></p>
 			<?php else : ?>
 			<div class="table-wrap"><table>
-				<tr><th><?php echo __( 'Site' ); ?></th><th><?php echo __( 'Erişim' ); ?></th><th><?php echo __( 'Ülke' ); ?></th><th><?php echo __( 'Ortam' ); ?></th><th class="n"><?php echo __( 'Paket' ); ?></th><th class="n"><?php echo __( 'İstek' ); ?></th><th><?php echo __( 'Son' ); ?></th></tr>
+				<tr><th><?php echo __( 'Site' ); ?></th><th><?php echo __( 'Erişim' ); ?></th><th><?php echo __( 'Ülke' ); ?></th><th><?php echo __( 'Ortam' ); ?></th><th class="n"><?php echo __( 'Paket' ); ?></th><th class="n"><?php echo __( 'İstek' ); ?></th><th><?php echo __( 'İlk' ); ?></th><th><?php echo __( 'Son' ); ?></th></tr>
 				<?php
 				$pending = array();
 				foreach ( (array) $this->config['sites'] as $h => $conf ) {
@@ -1872,20 +1894,23 @@ var L = <?php echo json_encode( array(
 						$pending[ $conf['pending']['ih'] ] = (string) $h;
 					}
 				}
+				$shared = Stats::shared_urls( $S['clients'] );
 				$i = 0;
 				foreach ( $S['clients'] as $cid => $c ) :
 					?>
 					<?php
 					$host = (string) parse_url( (string) ( $c['url'] ?? '' ), PHP_URL_HOST );
 					$path = rtrim( (string) parse_url( (string) ( $c['url'] ?? '' ), PHP_URL_PATH ), '/' );
+					$warn = isset( $shared[ (string) ( $c['url'] ?? '' ) ] );
 					?>
 					<tr<?php echo ++$i > 15 ? ' class="more" hidden' : ''; ?>>
-						<td><b><?php echo $e( '' !== $host ? $host . $path : 'Adres bildirmedi' ); ?></b><?php if ( ! empty( $c['name'] ) ) : ?><br><span class="small muted"><?php echo $e( $c['name'] ); ?></span><?php endif; ?></td>
+						<td><b><?php echo $e( '' !== $host ? $host . $path : 'Adres bildirmedi' ); ?></b><?php if ( ! empty( $c['name'] ) ) : ?><br><span class="small muted"><?php echo $e( $c['name'] ); ?></span><?php endif; ?><?php if ( ! empty( $c['pfx'] ) ) : ?><br><span class="small muted"><?php echo $e( __( 'Kurulum kimliği' ) ); ?> <code><?php echo $e( (string) $c['pfx'] ); ?>…</code></span><?php endif; ?><?php if ( $warn ) : ?><br><span class="pill warn"><?php echo $e( __( 'Olası taklit' ) ); ?></span> <span class="small"><?php echo $e( __( 'Aynı adresi başka bir kurulum da bildirdi. Anahtar vermeden önce sitenin sizde olduğunu doğrulayın.' ) ); ?></span><?php endif; ?></td>
 						<td><?php echo $this->client_access( (string) $cid, $c, $pending ); ?></td>
 						<td class="small"><?php echo ! empty( $c['cc'] ) ? '<b class="cc">' . $e( $c['cc'] ) . '</b>' . $e( self::country_name( (string) $c['cc'] ) ) : '<span class="muted">—</span>'; ?></td>
 						<td class="small muted"><?php echo $e( trim( ( $c['wp'] ? 'WP ' . $c['wp'] : '' ) . ( $c['php'] ? ' · PHP ' . $c['php'] : '' ) ) ); ?><?php if ( ! empty( $c['upd'] ) ) : ?><br><?php echo isset( $c['pk']['flx-setup'] ) ? 'Flux Setup' : 'Flux Updater'; ?> <?php echo $e( $c['upd'] ); ?><?php endif; ?></td>
 						<td class="n" title="<?php echo $e( implode( ', ', array_keys( (array) ( $c['pk'] ?? array() ) ) ) ); ?>"><?php echo self::n( count( (array) ( $c['pk'] ?? array() ) ) ); ?></td>
 						<td class="n"><?php echo self::n( $c['n'] ?? 0 ); ?></td>
+						<td class="small"><?php echo $e( self::ago( (int) ( $c['first'] ?? 0 ) ) ); ?></td>
 						<td class="small"><?php echo $e( self::ago( (int) ( $c['last'] ?? 0 ) ) ); ?></td>
 					</tr>
 				<?php endforeach; ?>
@@ -1901,7 +1926,7 @@ var L = <?php echo json_encode( array(
 		$this->view_resources();
 	}
 
-	/** "Bağlanan siteler" erişim hücresi: anahtarlı/pasif ise anahtar satırına bağlantı, anahtarsızsa "Anahtar ver". */
+	/** "Bağlanan siteler" erişim hücresi: anahtarlı/pasif ise anahtar satırına bağlantı, kurulum kaydındaysa "Anahtar ver". */
 	private function client_access( string $cid, array $c, array $pending ): string {
 		$e = array( __CLASS__, 'e' );
 		if ( ! empty( $c['key'] ) ) {
@@ -1915,15 +1940,19 @@ var L = <?php echo json_encode( array(
 			$pill = ! empty( $c['off'] ) ? '<span class="pill err">' . $e( __( 'Pasif' ) ) . '</span>' : '<span class="pill ok">' . $e( __( 'Anahtarlı' ) ) . '</span>';
 			return '' !== $hash ? '<a href="#' . $e( self::key_anchor( $hash ) ) . '" title="' . $e( __( 'Anahtar ayarları' ) ) . '">' . $pill . '</a>' : $pill;
 		}
-		$out = '<span class="pill muted">Public</span>';
-		$ih  = (string) ( $c['ih'] ?? '' );
+		$out  = '<span class="pill muted">Public</span>';
+		$ih   = (string) ( $c['ih'] ?? '' );
+		$bound = Stats::bound_install( $cid, $c );
+		if ( '' !== $ih && isset( $pending[ $ih ] ) && $bound ) {
+			return '<a href="#' . $e( self::key_anchor( $pending[ $ih ] ) ) . '"><span class="pill warn">' . $e( __( 'Teslim bekliyor' ) ) . '</span></a>';
+		}
+		if ( $bound ) {
+			return $out . '<form method="post" class="inline give">' . $this->hidden( 'issue_key' ) . '<input type="hidden" name="client" value="' . $e( $cid ) . '"><button class="btn sm">' . $e( __( 'Anahtar ver' ) ) . '</button></form>';
+		}
 		if ( '' === $ih ) {
 			return $out . '<br><span class="small muted" title="' . $e( __( 'Otomatik anahtar teslimi için sitede Flux Setup (veya Flux Updater 1.7.0+) gerekir.' ) ) . '">' . $e( __( 'Flux Setup gerekli' ) ) . '</span>';
 		}
-		if ( isset( $pending[ $ih ] ) ) {
-			return '<a href="#' . $e( self::key_anchor( $pending[ $ih ] ) ) . '"><span class="pill warn">' . $e( __( 'Teslim bekliyor' ) ) . '</span></a>';
-		}
-		return $out . '<form method="post" class="inline give">' . $this->hidden( 'issue_key' ) . '<input type="hidden" name="client" value="' . $e( $cid ) . '"><button class="btn sm">' . $e( __( 'Anahtar ver' ) ) . '</button></form>';
+		return $out . '<br><span class="small muted">' . $e( __( 'Anahtar, kurulum kimliğiyle gelen kayda verilir. Site bir kez daha denetleyince o satır oluşur.' ) ) . '</span>';
 	}
 
 	/** Ülke trafiği: her ülkeden site, kontrol, indirme, veri, engellenen; satır açılınca paketler. */
