@@ -1,5 +1,8 @@
 # Changelog
 
+## 1.15.6
+- Default setup-wizard category for Flux Ads (`flx-ads`): Growth, after Flux Analytics. A category saved in the panel still wins.
+
 ## 1.15.5
 - Default setup-wizard category for Flux Files (`flx-files`): System. A category saved in the panel still wins.
 
