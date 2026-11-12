@@ -1,5 +1,8 @@
 # Changelog
 
+## 1.15.5
+- Default setup-wizard category for Flux Ads (`flx-ads`): Growth, after Flux Analytics. A category saved in the panel still wins.
+
 ## 1.15.4
 - Default setup-wizard category for Flux Block Editor (`flx-blocks`): Growth. A category saved in the panel still wins.
 

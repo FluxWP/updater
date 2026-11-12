@@ -38,6 +38,7 @@ final class CatalogMeta {
 		'flx-mail'         => array( 'contact', 30, true ),
 		'flx-seo'          => array( 'grow', 10, true ),
 		'flx-analytics'    => array( 'grow', 20, false ),
+		'flx-ads'          => array( 'grow', 25, false ),
 		'flx-lang'         => array( 'grow', 30, false ),
 		'flx-social'       => array( 'grow', 40, false ),
 		'flx-ai'           => array( 'ai', 10, false ),
