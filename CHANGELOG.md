@@ -1,5 +1,8 @@
 # Changelog
 
+## 1.15.4
+- Default setup-wizard category for Flux Block Editor (`flx-blocks`): Growth. A category saved in the panel still wins.
+
 ## 1.15.3
 - Append each update check to `data/stats.journal` and fold it into `data/stats.json` in batches (or when the panel, the admin API, or a key handout reads statistics). A check no longer rewrites the statistics file. The fold stores the last applied sequence, so a journal left behind after a crash is not counted twice.
 - When the package catalog expires, one request refreshes it from GitHub. Other checks keep serving the previous catalog and do not wait. If there is no catalog yet, they wait up to 20 seconds for that refresh instead of calling GitHub themselves. A failed refresh keeps the previous catalog and backs off for 30 seconds. The webhook and Reload packages still force a refresh.
