@@ -45,6 +45,7 @@ final class CatalogMeta {
 		'flx-studio'       => array( 'ai', 20, false ),
 		'flx-speed'        => array( 'system', 10, true ),
 		'flx-backup'       => array( 'system', 20, true ),
+		'flx-files'        => array( 'system', 25, false ),
 	);
 
 	/** Panelde kayıtlı liste varsa o, yoksa varsayılan; sıraya göre. */
