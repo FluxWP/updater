@@ -32,6 +32,7 @@ final class CatalogMeta {
 		'flx-chatbot'      => array( 'contact', 15, false ),
 		'flx-recaptcha'    => array( 'system', 30, false ),
 		'flx-wiki'         => array( 'grow', 50, false ),
+		'flx-blocks'       => array( 'grow', 60, false ),
 		'flx-chat'         => array( 'contact', 10, true ),
 		'flx-forms'        => array( 'contact', 20, true ),
 		'flx-mail'         => array( 'contact', 30, true ),
