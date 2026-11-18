@@ -230,6 +230,44 @@ try {
 	check( ! is_file( $dir . '/expo/flux/assets/' . hash( 'sha256', 'var n = 0;' ) ), 'Assets of dropped updates are removed' );
 	check( is_file( $dir . '/expo/flux/assets/' . hash( 'sha256', 'var n = ' . ( Expo::KEEP + 1 ) . ';' ) ), 'Assets of kept updates stay' );
 
+	// Beta: selected devices / site users get the beta channel first, then promote.
+	$rt2 = 'b2b2b2b2';
+	$bp  = 'var prod = 1;';
+	$bb  = 'var beta = 1;';
+	foreach ( array( $bp, $bb ) as $f ) {
+		post( '/v1/expo/flux/assets/' . hash( 'sha256', $f ), $f, $KEY );
+	}
+	$idp = '70000000-2222-4333-8444-555555555555';
+	$idb = '80000000-2222-4333-8444-555555555555';
+	$mp  = manifest( $idp, $rt2, array( array( $bp, 'bundle' ) ) );
+	$mb  = manifest( $idb, $rt2, array( array( $bb, 'bundle' ) ) );
+	post( '/v1/expo/flux/publish', json_encode( array( 'channel' => 'production', 'updates' => array( array( 'platform' => 'ios', 'runtime' => $rt2, 'manifest' => $mp, 'signature' => sig( $mp, $pk ) ) ) ) ), $KEY );
+	[ $c ] = post( '/v1/expo/flux/publish', json_encode( array( 'channel' => 'beta', 'updates' => array( array( 'platform' => 'ios', 'runtime' => $rt2, 'manifest' => $mb, 'signature' => sig( $mb, $pk ) ) ) ) ), $KEY );
+	check( 200 === $c, 'Publish to the beta channel' );
+	$dev  = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee';
+	$hb   = array( 'expo-runtime-version' => $rt2, 'flux-device' => $dev, 'flux-device-name' => 'iPhone 17 <b>', 'flux-accounts' => 'example.org#7,BAD,https://Shop.Test/blog#3' ) + $h;
+	$p    = parts( get( '/v1/expo/flux/manifest', $hb ) );
+	check( $mp === $p['manifest']['body'], 'Device not on the beta list gets the stable update' );
+	$devs = $expo->devices( 'flux' );
+	check( isset( $devs[ $dev ] ) && array( 'example.org#7', 'shop.test/blog#3' ) === $devs[ $dev ]['accounts'] && false === strpos( $devs[ $dev ]['name'], '<' ), 'Device record keeps normalized accounts and a clean name' );
+	check( $expo->set_beta_device( 'flux', $dev, true ), 'Add device to beta' );
+	$p = parts( get( '/v1/expo/flux/manifest', $hb ) );
+	check( $mb === $p['manifest']['body'], 'Beta device gets the beta update' );
+	$p = parts( get( '/v1/expo/flux/manifest', array( 'flux-device' => '' ) + $hb ) );
+	check( $mp === $p['manifest']['body'], 'Other devices stay on stable' );
+	$expo->set_beta_device( 'flux', $dev, false );
+	$r = $expo->set_beta_accounts( 'flux', "shop.test/blog#3\nnot a user" );
+	check( 1 === $r['count'] && array( 'not', 'a', 'user' ) === $r['invalid'], 'Beta users parsed; invalid lines reported' );
+	$p = parts( get( '/v1/expo/flux/manifest', $hb ) );
+	check( $mb === $p['manifest']['body'], 'A device signed in as a beta user gets the beta update' );
+	$p = parts( get( '/v1/expo/flux/manifest', array( 'expo-runtime-version' => $rt ) + $hb ) );
+	check( isset( $p['manifest'] ) && $mb !== $p['manifest']['body'], 'Beta user on a runtime without a beta update falls back to stable' );
+	check( $expo->promote( 'flux', 'ios', $rt2 ), 'Promote beta to stable' );
+	$p = parts( get( '/v1/expo/flux/manifest', array( 'flux-accounts' => '' ) + $hb ) );
+	check( $mb === $p['manifest']['body'], 'After promotion everyone gets the former beta update' );
+	check( ! $expo->promote( 'flux', 'android', $rt2 ), 'Promote needs a beta update' );
+	check( '' === Expo::norm_account( 'evil.test#0' ) && 'a.test#5' === Expo::norm_account( 'http://A.test/#5' ), 'Account normalization' );
+
 	// Lockdown stops devices, not CI publishing.
 	Settings::update( $dir, array( 'lockdown' => true ) );
 	$out = get( '/v1/expo/flux/manifest', $h );

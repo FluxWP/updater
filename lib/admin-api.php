@@ -63,7 +63,7 @@ final class AdminApi {
 		} elseif ( $get && 'settings' === $route ) {
 			$this->json( $this->settings() );
 		} elseif ( $get && 'ota' === $route ) {
-			$this->json( array( 'ok' => true, 'brands' => ( new Expo( $this->server, $this->config ) )->overview() ) );
+			$this->json( array( 'ok' => true ) + ( new Expo( $this->server, $this->config ) )->admin_info() );
 		} elseif ( $get && 'repos' === $route ) {
 			$this->json( array( 'ok' => true ) + $this->server->github_repos( ! empty( $_GET['fresh'] ) ) );
 		} elseif ( $post && 'action' === $route ) {
