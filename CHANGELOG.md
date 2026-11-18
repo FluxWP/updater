@@ -1,5 +1,8 @@
 # Changelog
 
+## 1.17.0
+- Connected sites has filter tabs with counts: All, Keyed, Public, Local / test, Disabled, Awaiting delivery and Possible impersonation (the last three only appear when they have rows). The list shows 15 rows per tab with a Show all button. Local and test addresses (`localhost`, `127.x`, `.local`, `.test`, `.localhost`, ddev, Lando) get their own tab and no longer raise the possible-impersonation warning, since any install can report them.
+
 ## 1.16.3
 - The panel no longer calls GitHub while the page is being built. The GitHub package previews table is drawn from the cache and refreshed by a separate request after the page opens. Before, every panel view after the cache expired waited for two GitHub requests per repository (10-15 s timeout each), which stalled the page below the country map.
 
