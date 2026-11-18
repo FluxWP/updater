@@ -18,6 +18,8 @@
  *   FLX_UPDATE_SETUP_TOKEN           ilk kurulum anahtarı, en az 16 karakter (boşsa data/.setup-token + PHP hata günlüğü)
  *   FLX_UPDATE_DATA_DIR              yazılabilir klasör (varsayılan ./data)
  *   FLX_UPDATE_CACHE_TTL             saniye (varsayılan 300)
+ *   FLX_UPDATE_OTA_KEY               mobil OTA yayın anahtarı, en az 32 karakter (panelden de üretilir)
+ *   FLX_UPDATE_OTA_CERT              mobil OTA kod imzalama sertifikası (PEM, isteğe bağlı; yayında imza doğrulanır)
  */
 
 namespace FLXUpdate;
@@ -58,6 +60,8 @@ function load_config( string $root ): array {
 		'setup_token'         => (string) $env( 'FLX_UPDATE_SETUP_TOKEN' ),
 		'sites'               => $sites,
 		'data_dir'            => (string) $env( 'FLX_UPDATE_DATA_DIR', $root . '/data' ),
+		'ota_key'             => (string) $env( 'FLX_UPDATE_OTA_KEY' ),
+		'ota_cert'            => (string) $env( 'FLX_UPDATE_OTA_CERT' ),
 	);
 
 	if ( is_file( $root . '/config.php' ) ) {

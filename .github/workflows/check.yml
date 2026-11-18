@@ -23,5 +23,7 @@ jobs:
         run: php tests/desktop-repository.php
       - name: Admin API
         run: php tests/admin-api.php
+      - name: Mobile OTA (Expo Updates)
+        run: php tests/expo.php
       - name: Private package move regression
         run: php tests/private-move.php

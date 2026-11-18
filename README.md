@@ -21,7 +21,7 @@ There are no default repositories. You pick them in /admin › GitHub; a reposit
 GitHub repositories (push → Actions → <slug>-v<version> release + <slug>.zip)
         │ token (private repositories, Contents: Read-only)
         ▼
-update server   /admin (panel) · /v1/check · /v1/download/<slug>/<version>.zip · /v1/app/* · /v1/webhook
+update server   /admin (panel) · /v1/check · /v1/download/<slug>/<version>.zip · /v1/app/* · /v1/expo/* · /v1/webhook
         ▲ no key: public packages · X-FluxWP-Site-Key: + the key's private packages
 WordPress sites (FluxWP Panel)
 ```
@@ -93,6 +93,16 @@ Choose **FluxWP desktop repository** under /admin › GitHub for `fluxapp-v<vers
 
 - **Mobile/desktop app:** releases tagged `v<version>` in the app repository (panel › GitHub › App repository). File names decide the platform: `*windows*`, `*macos*`, `*.apk`, `*ios*`.
 - **FluxWP desktop:** `fluxapp-v<version>` releases in the package repository (or `FLX_UPDATE_FLUXAPP_REPO`). File names carry the brand: `fluxapp-<brand>-<version>-macos-universal.dmg`, `.app.tar.gz`, `.app.tar.gz.sig` and `fluxapp-<brand>-<version>-windows-x64-setup.exe`, `-setup.exe.sig`, `.msi` (uploaded by `fluxapp-desktop.yml` in FluxWP/FluxWP). The app asks the `tauri` endpoint and installs signed bundles in the background.
+
+### Mobile OTA updates: Expo (1.16.0)
+
+Self-hosted [Expo Updates protocol v1](https://docs.expo.dev/technical-specs/expo-updates-1/) for the FluxWP mobile app, instead of EAS Update. The app (`expo-updates`) asks `GET /v1/expo/<brand>/manifest` with `expo-platform`, `expo-runtime-version` and `expo-channel-name`; assets are content-addressed under `/v1/expo/<brand>/assets/<sha256>.<ext>`.
+
+- **Signing happens in CI, not here.** GitHub Actions signs each manifest and directive with the code signing private key; this server stores and serves the signed bytes. A compromised server cannot push unsigned code: the app verifies against the certificate embedded in it.
+- **Publishing:** /admin › Mobile OTA updates › *Generate publish key* (or `FLX_UPDATE_OTA_KEY`). CI sends it as `X-FluxWP-OTA-Key` to `POST /v1/expo/<brand>/assets/missing`, `/assets/<sha256>`, `/publish` and `/rollback`. Optionally paste the certificate (or `FLX_UPDATE_OTA_CERT`): a publish signed with another key is then rejected. Assets are checked against their sha256 and must point to this server.
+- **Serving:** the newest update per channel/platform/runtime, a signed `noUpdateAvailable` when the device already runs it or nothing matches, and a signed `rollBackToEmbedded` after a rollback. The panel shows each slot with the served update, the last device check, runtimes devices ask for without an update, and the last 8 updates; *Apply* serves an earlier one again or pauses.
+- Device checks follow the emergency stop, keyless switch and country rules like the other app endpoints. Publishing works during an emergency stop, like the webhook. Admin API: `GET /v1/admin/ota`; actions `save_ota_cert`, `ota_activate` (`gen_ota_key` stays on /admin).
+- Storage: `data/expo/<brand>/` (state, updates, shared assets). Assets no update uses any more are deleted.
 
 ### Admin API: manage from another panel (1.12.0)
 
