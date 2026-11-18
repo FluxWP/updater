@@ -9,7 +9,7 @@
 
 namespace FLXUpdate;
 
-const VERSION = '1.16.2';
+const VERSION = '1.16.3';
 const DAY_SECONDS = 86400;
 
 class HttpError extends \Exception {
@@ -186,6 +186,21 @@ final class Server {
 		$out = array();
 		foreach ( $this->repos() as $source ) { $this->sync_preview_source( $source['repo'], $fresh ); $out[ $source['repo'] ] = ( new Previews( $this->data_dir ) )->cached( $source['repo'] ); }
 		return $out;
+	}
+
+	/** Önbellekteki tanıtım kaynakları; GitHub'a gitmez. */
+	public function cached_preview_sources(): array {
+		$out = array();
+		foreach ( $this->repos() as $source ) { $out[ $source['repo'] ] = ( new Previews( $this->data_dir ) )->cached( $source['repo'] ); }
+		return $out;
+	}
+
+	/** Süresi dolmuş (yeniden eşitlenmesi gereken) tanıtım kaynağı var mı? */
+	public function previews_stale(): bool {
+		foreach ( $this->cached_preview_sources() as $cache ) {
+			if ( time() - (int) ( $cache['checked_at'] ?? 0 ) >= (int) $this->config['cache_ttl'] ) { return true; }
+		}
+		return false;
 	}
 
 	private function sync_preview_source( string $repo, bool $fresh = false ): void {
