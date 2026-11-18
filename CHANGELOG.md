@@ -1,5 +1,8 @@
 # Changelog
 
+## 1.16.2
+- Mobile OTA panel section caches each brand's disk usage for 10 minutes (`disk.json`) instead of walking `assets/` and `updates/` on every panel view.
+
 ## 1.16.1
 - The admin panel opens without waiting for slow parts. The Resources section loads after the page, from a separate request, so the usage overview, chart and tables no longer stall behind it.
 - The `data/` folder size walk (zips, previews, locks) is cached for 10 minutes instead of running on every panel view and admin API call. Pruning zips or clearing the log refreshes it.
