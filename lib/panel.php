@@ -1108,7 +1108,7 @@ details summary{cursor:pointer;color:var(--green);font-weight:600}
 .langs{display:inline-flex;gap:2px;background:#e8eeea;border-radius:8px;padding:2px}.langs a{padding:3px 9px;border-radius:6px;color:var(--muted);text-decoration:none;font-size:12px;font-weight:600}.langs a[aria-current]{background:#fff;color:var(--text)}
 .tabs-nav{display:flex;gap:4px;flex-wrap:wrap;margin:-4px 0 14px}.tabs-nav a{padding:5px 12px;border-radius:999px;color:var(--muted);text-decoration:none;font-size:13px;border:1px solid transparent}.tabs-nav a:hover{border-color:var(--line);background:#fff;color:var(--text)}
 h2.sec{font-size:18px;margin:8px 0 12px}.sec-head{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;scroll-margin-top:12px}
-.seg{display:inline-flex;gap:2px;background:#e8eeea;border-radius:8px;padding:2px}.seg a{padding:4px 12px;border-radius:6px;color:var(--muted);text-decoration:none;font-size:13px}.seg a[aria-selected=true]{background:#fff;color:var(--text);box-shadow:0 1px 2px rgba(0,0,0,.06)}
+.seg-wrap{flex-wrap:wrap;margin:0 0 12px}.seg .cnt{display:inline-block;min-width:1.6em;padding:0 6px;margin-left:4px;border-radius:999px;background:#d9e3dd;color:var(--text);font-size:11px;font-weight:600;text-align:center}.seg a[aria-selected=true] .cnt{background:var(--green-bg);color:var(--green)}.seg{display:inline-flex;gap:2px;background:#e8eeea;border-radius:8px;padding:2px}.seg a{padding:4px 12px;border-radius:6px;color:var(--muted);text-decoration:none;font-size:13px}.seg a[aria-selected=true]{background:#fff;color:var(--text);box-shadow:0 1px 2px rgba(0,0,0,.06)}
 .kpis{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:10px;margin-bottom:16px}@media(max-width:980px){.kpis{grid-template-columns:repeat(3,minmax(0,1fr))}}@media(max-width:520px){.kpis{grid-template-columns:repeat(2,minmax(0,1fr))}}
 .kpi{--k:#1f8a5b;--kbg:#e3f4ea;position:relative;overflow:hidden;background:var(--card);border:1px solid var(--line);border-top:3px solid var(--k);border-radius:12px;padding:12px 14px}
 .kpi::after{content:"";position:absolute;right:-24px;top:-24px;width:80px;height:80px;border-radius:50%;background:var(--kbg);opacity:.7;pointer-events:none}
@@ -2048,9 +2048,7 @@ var L = <?php echo json_encode( array(
 			<?php if ( ! $S['clients'] ) : ?>
 				<p class="empty"><?php echo __( 'Bu aralıkta güncelleme denetleyen site yok.' ); ?></p>
 			<?php else : ?>
-			<div class="table-wrap"><table>
-				<tr><th><?php echo __( 'Site' ); ?></th><th><?php echo __( 'Erişim' ); ?></th><th><?php echo __( 'Ülke' ); ?></th><th><?php echo __( 'Ortam' ); ?></th><th class="n"><?php echo __( 'Paket' ); ?></th><th class="n"><?php echo __( 'İstek' ); ?></th><th><?php echo __( 'İlk' ); ?></th><th><?php echo __( 'Son' ); ?></th></tr>
-				<?php
+			<?php
 				$pending = array();
 				foreach ( (array) $this->config['sites'] as $h => $conf ) {
 					if ( ! empty( $conf['pending']['ih'] ) && (int) ( $conf['pending']['exp'] ?? 0 ) >= time() ) {
@@ -2058,15 +2056,64 @@ var L = <?php echo json_encode( array(
 					}
 				}
 				$shared = Stats::shared_urls( $S['clients'] );
+				$flags  = array();
+				$counts = array( 'all' => 0, 'key' => 0, 'pub' => 0, 'local' => 0, 'wait' => 0, 'off' => 0, 'warn' => 0 );
+				foreach ( $S['clients'] as $cid => $c ) {
+					$f     = array( 'all' );
+					$local = self::is_local_host( (string) parse_url( (string) ( $c['url'] ?? '' ), PHP_URL_HOST ) );
+					if ( $local ) {
+						$f[] = 'local';
+					}
+					if ( ! empty( $c['key'] ) ) {
+						$f[] = 'key';
+						if ( ! empty( $c['off'] ) ) {
+							$f[] = 'off';
+						}
+					} else {
+						$f[] = 'pub';
+						$ih = (string) ( $c['ih'] ?? '' );
+						if ( '' !== $ih && isset( $pending[ $ih ] ) && Stats::bound_install( (string) $cid, $c ) ) {
+							$f[] = 'wait';
+						}
+					}
+					// Yerel/test adresini herkes bildirebilir (localhost); taklit uyarısı anlamsız.
+					if ( ! $local && isset( $shared[ (string) ( $c['url'] ?? '' ) ] ) ) {
+						$f[] = 'warn';
+					}
+					foreach ( $f as $k ) {
+						++$counts[ $k ];
+					}
+					$flags[ $cid ] = implode( ' ', $f );
+				}
+				$tabs = array(
+					'all'  => __( 'Tümü' ),
+					'key'  => __( 'Anahtarlı' ),
+					'pub'  => __( 'Public' ),
+					'local' => __( 'Yerel / test' ),
+					'wait' => __( 'Teslim bekliyor' ),
+					'off'  => __( 'Pasif' ),
+					'warn' => __( 'Olası taklit' ),
+				);
+				?>
+			<div class="seg seg-wrap" id="client-tabs" role="tablist">
+				<?php foreach ( $tabs as $k => $label ) : ?>
+					<?php if ( $counts[ $k ] > 0 || in_array( $k, array( 'all', 'key', 'pub' ), true ) ) : ?>
+						<a href="#clients" role="tab" data-f="<?php echo $e( $k ); ?>" aria-selected="<?php echo 'all' === $k ? 'true' : 'false'; ?>"><?php echo $e( $label ); ?> <span class="cnt"><?php echo self::n( $counts[ $k ] ); ?></span></a>
+					<?php endif; ?>
+				<?php endforeach; ?>
+			</div>
+			<div class="table-wrap"><table>
+				<tr><th><?php echo __( 'Site' ); ?></th><th><?php echo __( 'Erişim' ); ?></th><th><?php echo __( 'Ülke' ); ?></th><th><?php echo __( 'Ortam' ); ?></th><th class="n"><?php echo __( 'Paket' ); ?></th><th class="n"><?php echo __( 'İstek' ); ?></th><th><?php echo __( 'İlk' ); ?></th><th><?php echo __( 'Son' ); ?></th></tr>
+				<?php
 				$i = 0;
 				foreach ( $S['clients'] as $cid => $c ) :
 					?>
 					<?php
 					$host = (string) parse_url( (string) ( $c['url'] ?? '' ), PHP_URL_HOST );
 					$path = rtrim( (string) parse_url( (string) ( $c['url'] ?? '' ), PHP_URL_PATH ), '/' );
-					$warn = isset( $shared[ (string) ( $c['url'] ?? '' ) ] );
+					$warn = in_array( 'warn', explode( ' ', $flags[ $cid ] ), true );
 					?>
-					<tr<?php echo ++$i > 15 ? ' class="more" hidden' : ''; ?>>
+					<tr data-f="<?php echo $e( $flags[ $cid ] ); ?>">
 						<td><b><?php echo $e( '' !== $host ? $host . $path : 'Adres bildirmedi' ); ?></b><?php if ( ! empty( $c['name'] ) ) : ?><br><span class="small muted"><?php echo $e( $c['name'] ); ?></span><?php endif; ?><?php if ( ! empty( $c['pfx'] ) ) : ?><br><span class="small muted"><?php echo $e( __( 'Kurulum kimliği' ) ); ?> <code><?php echo $e( (string) $c['pfx'] ); ?>…</code></span><?php endif; ?><?php if ( $warn ) : ?><br><span class="pill warn"><?php echo $e( __( 'Olası taklit' ) ); ?></span> <span class="small"><?php echo $e( __( 'Aynı adresi başka bir kurulum da bildirdi. Anahtar vermeden önce sitenin sizde olduğunu doğrulayın.' ) ); ?></span><?php endif; ?></td>
 						<td><?php echo $this->client_access( (string) $cid, $c, $pending ); ?></td>
 						<td class="small"><?php echo ! empty( $c['cc'] ) ? '<b class="cc">' . $e( $c['cc'] ) . '</b>' . $e( self::country_name( (string) $c['cc'] ) ) : '<span class="muted">—</span>'; ?></td>
@@ -2078,15 +2125,48 @@ var L = <?php echo json_encode( array(
 					</tr>
 				<?php endforeach; ?>
 			</table></div>
-			<?php if ( count( $S['clients'] ) > 15 ) : ?>
-				<p><button type="button" class="btn sec sm" onclick="document.querySelectorAll('#clients tr.more').forEach(function(r){r.hidden=false});this.remove()"><?php echo $e( _f( 'Tümünü göster (%s)', self::n( count( $S['clients'] ) ) ) ); ?></button></p>
-			<?php endif; ?>
+			<p id="client-more" hidden><button type="button" class="btn sec sm" data-label="<?php echo $e( __( 'Tümünü göster (%s)' ) ); ?>"></button></p>
+			<script>
+			(function () {
+				var card = document.getElementById('clients'), tabs = document.getElementById('client-tabs');
+				if (!card || !tabs) return;
+				var rows = Array.prototype.slice.call(card.querySelectorAll('table tr[data-f]')), cur = 'all', all = false, LIMIT = 15;
+				var more = document.getElementById('client-more'), btn = more.querySelector('button');
+				function apply() {
+					var shown = 0, total = 0;
+					rows.forEach(function (r) {
+						var ok = (' ' + r.getAttribute('data-f') + ' ').indexOf(' ' + cur + ' ') >= 0;
+						if (ok) total++;
+						var vis = ok && (all || shown < LIMIT);
+						if (vis) shown++;
+						r.hidden = !vis;
+					});
+					more.hidden = all || total <= LIMIT;
+					btn.textContent = btn.getAttribute('data-label').replace('%s', total);
+					Array.prototype.forEach.call(tabs.querySelectorAll('a'), function (a) { a.setAttribute('aria-selected', a.getAttribute('data-f') === cur ? 'true' : 'false'); });
+				}
+				tabs.addEventListener('click', function (ev) {
+					var a = ev.target.closest ? ev.target.closest('a[data-f]') : null;
+					if (!a) return;
+					ev.preventDefault();
+					cur = a.getAttribute('data-f'); all = false; apply();
+				});
+				btn.addEventListener('click', function () { all = true; apply(); });
+				apply();
+			})();
+			</script>
 			<?php endif; ?>
 			<p class="small muted"><?php echo __( 'Zorunlu kayıt yalnız site adresi ve ülkedir. IP saklanmaz: ülke, istek anında IP\'den bulunur (Cloudflare arkasındaysa CF-IPCountry, değilse sunucudaki ülke veritabanı) ve yalnız ülke kodu tutulur. Bulunamazsa ve site izin verdiyse WordPress saat diliminden. WordPress/PHP sürümü yalnız kullanım verisi izniyle.' ); ?></p>
 		</div>
 		<?php
 		$this->view_geo_traffic( $S, $catalog );
 		$this->view_resources();
+	}
+
+	/** Yerel geliştirme/test adresi mi (localhost, 127.x, .local, .test, ddev, lando)? */
+	private static function is_local_host( string $host ): bool {
+		$host = strtolower( trim( $host, '[]' ) );
+		return '' !== $host && (bool) preg_match( '/^(localhost|::1|127\.\d+\.\d+\.\d+|.*\.(localhost|local|test|ddev\.site|lndo\.site))$/', $host );
 	}
 
 	/** "Bağlanan siteler" erişim hücresi: anahtarlı/pasif ise anahtar satırına bağlantı, kurulum kaydındaysa "Anahtar ver". */

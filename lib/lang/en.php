@@ -232,6 +232,8 @@ return array(
 	'Teslim süresi doldu' => 'Delivery expired',
 	'Site bir sonraki kontrolde anahtarı kendiliğinden alacak.' => 'The site will pick up the key on its next check.',
 	'Teslim bekliyor' => 'Awaiting delivery',
+	'Tümü' => 'All',
+	'Yerel / test' => 'Local / test',
 	'Aktif yap' => 'Enable',
 	'Pasif yap' => 'Disable',
 	'Erişimi düzenle' => 'Edit access',
