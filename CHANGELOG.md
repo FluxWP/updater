@@ -1,5 +1,8 @@
 # Changelog
 
+## 1.16.3
+- The panel no longer calls GitHub while the page is being built. The GitHub package previews table is drawn from the cache and refreshed by a separate request after the page opens. Before, every panel view after the cache expired waited for two GitHub requests per repository (10-15 s timeout each), which stalled the page below the country map.
+
 ## 1.16.2
 - Mobile OTA panel section caches each brand's disk usage for 10 minutes (`disk.json`) instead of walking `assets/` and `updates/` on every panel view.
 

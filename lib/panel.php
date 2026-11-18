@@ -152,6 +152,12 @@ final class Panel {
 			return;
 		}
 
+		if ( 'GET' === $method && 'previews' === ( $_GET['ajax'] ?? '' ) ) {
+			header( 'Content-Type: text/html; charset=utf-8' );
+			echo $this->preview_rows( $this->server->sync_preview_sources() );
+			return;
+		}
+
 		if ( 'GET' === $method && 'resources' === ( $_GET['ajax'] ?? '' ) ) {
 			header( 'Content-Type: text/html; charset=utf-8' );
 			$this->view_resources_body();
@@ -206,22 +212,46 @@ final class Panel {
 		);
 	}
 
-	private function view_previews( array $catalog ): void {
+	/** Tanıtım kaynakları tablosunun satırları. */
+	private function preview_rows( array $sources ): string {
 		$e = static function ( $value ) { return htmlspecialchars( (string) $value, ENT_QUOTES, 'UTF-8' ); };
-		$sources = $this->server->sync_preview_sources();
+		$h = '';
+		foreach ( $sources as $repo => $source ) {
+			$status = ! empty( $source['error'] ) ? __( 'Using cached data; GitHub sync will retry.' ) : ( empty( $source['revision'] ) ? __( 'Not synchronized yet' ) : __( 'Synced from GitHub' ) );
+			$h .= '<tr><td><a href="https://github.com/' . $e( $repo ) . '/blob/' . $e( $source['revision'] ?? 'HEAD' ) . '/catalog/packages.json" target="_blank" rel="noopener noreferrer">' . $e( $repo ) . '</a></td><td><code>' . $e( substr( $source['revision'] ?? '—', 0, 12 ) ) . '</code></td><td>' . count( $source['packages'] ?? array() ) . '</td><td>' . $e( $status ) . '</td></tr>';
+		}
+		return $h;
+	}
+
+	/**
+	 * Tanıtım kaynakları önbellekten çizilir; GitHub'a sayfa yüklenirken gidilmez (depo başına iki istek,
+	 * her biri 10-15 sn bekleyebilir). Süresi dolmuşsa tablo sayfa açıldıktan sonra ayrı istekle yenilenir.
+	 */
+	private function view_previews( array $catalog ): void {
+		$sources = $this->server->cached_preview_sources();
 		?>
 		<div class="card" id="previews">
 			<h2><?php echo __( 'GitHub package previews' ); ?></h2>
 			<p class="muted"><?php echo __( 'Descriptions, icons, gallery images and website links come from catalog/packages.json in each package repository. Edit them in GitHub; this server caches and distributes them to authorized sites.' ); ?></p>
 			<div class="table-wrap"><table>
 				<tr><th><?php echo __( 'Repository' ); ?></th><th><?php echo __( 'Revision' ); ?></th><th><?php echo __( 'Paketler' ); ?></th><th><?php echo __( 'Status' ); ?></th></tr>
-				<?php foreach ( $sources as $repo => $source ) : ?>
-				<tr><td><a href="https://github.com/<?php echo $e( $repo ); ?>/blob/<?php echo $e( $source['revision'] ?? 'HEAD' ); ?>/catalog/packages.json" target="_blank" rel="noopener noreferrer"><?php echo $e( $repo ); ?></a></td><td><code><?php echo $e( substr( $source['revision'] ?? '—', 0, 12 ) ); ?></code></td><td><?php echo count( $source['packages'] ?? array() ); ?></td><td><?php echo $e( ! empty( $source['error'] ) ? __( 'Using cached data; GitHub sync will retry.' ) : ( empty( $source['revision'] ) ? __( 'Not synchronized yet' ) : __( 'Synced from GitHub' ) ) ); ?></td></tr>
-				<?php endforeach; ?>
+				<tbody id="previews-rows"><?php echo $this->preview_rows( $sources ); ?></tbody>
 			</table></div>
 			<p class="small muted"><?php echo __( 'Media is fetched from GitHub on first use, verified against its immutable blob and cached here. Private media follows the same site and package permissions as downloads.' ); ?></p>
 			<form method="post"><?php echo $this->hidden( 'refresh_previews' ); ?><button class="btn sec sm"><?php echo __( 'Sync previews from GitHub' ); ?></button></form>
 		</div>
+		<?php if ( $this->server->previews_stale() ) : ?>
+		<script>
+		(function () {
+			var body = document.getElementById('previews-rows');
+			if (!body || !window.fetch) return;
+			fetch(location.pathname + '?ajax=previews', { credentials: 'same-origin' })
+				.then(function (r) { if (!r.ok) throw 0; return r.text(); })
+				.then(function (h) { body.innerHTML = h; })
+				.catch(function () {});
+		})();
+		</script>
+		<?php endif; ?>
 		<?php
 	}
 
