@@ -766,6 +766,35 @@ final class Expo {
 	/* Panel                                                               */
 	/* ------------------------------------------------------------------ */
 
+	/**
+	 * Yönetici API'si (GET /v1/admin/ota): yayın anahtarı ve sertifika durumu + markalar.
+	 * Anahtarın kendisi ya da sha256'sı dönmez; sertifika açık bilgidir.
+	 */
+	public function admin_info(): array {
+		$set     = Settings::load( (string) $this->config['data_dir'] );
+		$panel_c = (string) ( $set['ota_cert'] ?? '' );
+		$pem     = '' !== $panel_c ? $panel_c : (string) ( $this->config['ota_cert'] ?? '' );
+		$info    = '' !== $pem && function_exists( 'openssl_x509_parse' ) ? @openssl_x509_parse( $pem ) : false;
+		$has_env = strlen( (string) ( $this->config['ota_key'] ?? '' ) ) >= 32;
+		return array(
+			'manifest_url' => $this->server->base_url() . '/v1/expo/',
+			'key'          => array(
+				'set'     => (bool) $this->key_hashes(),
+				'hint'    => (string) ( $set['ota_key_hint'] ?? '' ),
+				'created' => (int) ( $set['ota_key_created'] ?? 0 ),
+				'env'     => $has_env && empty( $set['ota_key_hash'] ),
+			),
+			'cert'         => array(
+				'set'      => '' !== $pem,
+				'pem'      => $pem,
+				'cn'       => is_array( $info ) ? (string) ( $info['subject']['CN'] ?? '' ) : '',
+				'valid_to' => is_array( $info ) ? (int) ( $info['validTo_time_t'] ?? 0 ) : 0,
+				'env'      => '' === $panel_c && '' !== $pem,
+			),
+			'brands'       => $this->overview(),
+		);
+	}
+
 	/** Panel/yönetici API'si için özet: marka → kanal → platform → runtime. */
 	public function overview(): array {
 		$out = array();
