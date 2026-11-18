@@ -1,5 +1,8 @@
 # Changelog
 
+## 1.18.0
+- Mobile OTA beta: devices (random code the app sends) and site users (`site#userID`) on the beta list get the `beta` channel's update for their runtime; everyone else stays on the channel their build asks for. *Promote to stable* serves the same signed beta update on `production`. Device records (model, platform, runtime, account ids, first/last seen) are kept 180 days, at most 2000. Panel: Mobile OTA updates › Beta. Admin API: actions `ota_beta_device`, `ota_beta_accounts`, `ota_promote`; `GET /v1/admin/ota` includes devices and beta lists.
+
 ## 1.17.0
 - Connected sites has filter tabs with counts: All, Keyed, Public, Local / test, Disabled, Awaiting delivery and Possible impersonation (the last three only appear when they have rows). The list shows 15 rows per tab with a Show all button. Local and test addresses (`localhost`, `127.x`, `.local`, `.test`, `.localhost`, ddev, Lando) get their own tab and no longer raise the possible-impersonation warning, since any install can report them.
 

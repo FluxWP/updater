@@ -37,6 +37,13 @@ final class Expo {
 
 	const PLATFORMS = array( 'ios', 'android' );
 
+	/** Seçili cihaz/kullanıcıların önce aldığı kanal. */
+	const BETA = 'beta';
+
+	/** Saklanan cihaz kaydı üst sınırı (en eski düşer) ve ömrü (gün). */
+	const MAX_DEVICES = 2000;
+	const DEVICE_DAYS = 180;
+
 	const MIME = array(
 		'js'     => 'application/javascript',
 		'hbc'    => 'application/javascript',
@@ -153,9 +160,18 @@ final class Expo {
 		$current  = strtolower( (string) ( $_SERVER['HTTP_EXPO_CURRENT_UPDATE_ID'] ?? '' ) );
 		$embedded = strtolower( (string) ( $_SERVER['HTTP_EXPO_EMBEDDED_UPDATE_ID'] ?? '' ) );
 
-		$state = $this->state( $brand );
-		$this->mark_seen( $brand, $state, $channel, $platform, $runtime );
+		$state  = $this->state( $brand );
+		$device = self::header_device();
+		$accts  = self::header_accounts();
+		$this->mark_seen( $brand, $state, $channel, $platform, $runtime, $device, $accts );
 		$slot = $state['channels'][ $channel ][ $platform ][ $runtime ] ?? array();
+		// Beta: seçili cihaz ya da site kullanıcısı, bu runtime için beta yayını varsa onu alır.
+		if ( self::BETA !== $channel && $this->is_beta( $state, $device, $accts ) ) {
+			$beta = $state['channels'][ self::BETA ][ $platform ][ $runtime ] ?? array();
+			if ( '' !== (string) ( $beta['active'] ?? '' ) && $this->update( $brand, (string) $beta['active'] ) ) {
+				$slot = $beta;
+			}
+		}
 
 		$active = (string) ( $slot['active'] ?? '' );
 		$update = '' !== $active ? $this->update( $brand, $active ) : null;
@@ -239,28 +255,222 @@ final class Expo {
 		}
 	}
 
-	/** Cihazların sorduğu runtime'lar: yayın, kimsenin kullanmadığı runtime'a gidiyorsa uyarır. */
-	private function mark_seen( string $brand, array $state, string $channel, string $platform, string $runtime ): void {
-		$last = (int) ( $state['seen'][ $channel ][ $platform ][ $runtime ] ?? 0 );
-		if ( time() - $last < self::SEEN_EVERY ) {
+	/** Uygulamanın gönderdiği cihaz kodu (flux-device): rastgele UUID, cihazda saklanır. */
+	private static function header_device(): string {
+		$d = strtolower( trim( (string) ( $_SERVER['HTTP_FLUX_DEVICE'] ?? '' ) ) );
+		return preg_match( '/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/D', $d ) ? $d : '';
+	}
+
+	/** Uygulamadaki hesaplar (flux-accounts): "site#kullanıcıNo" virgülle, en çok 10. Ad/e-posta yok. */
+	private static function header_accounts(): array {
+		$out = array();
+		foreach ( explode( ',', (string) ( $_SERVER['HTTP_FLUX_ACCOUNTS'] ?? '' ) ) as $a ) {
+			$a = self::norm_account( $a );
+			if ( '' !== $a ) {
+				$out[ $a ] = true;
+			}
+			if ( count( $out ) >= 10 ) {
+				break;
+			}
+		}
+		return array_keys( $out );
+	}
+
+	/** "https://Site.com/blog#12" ya da "site.com#12" → "site.com/blog#12"; geçersizse ''. */
+	public static function norm_account( string $a ): string {
+		$a = strtolower( trim( $a ) );
+		$a = (string) preg_replace( '#^https?://#', '', $a );
+		if ( ! preg_match( '#^([a-z0-9.-]+(?::\d{1,5})?)((?:/[a-z0-9._~-]+)*)/?\#([1-9][0-9]{0,9})$#D', $a, $m ) ) {
+			return '';
+		}
+		return $m[1] . $m[2] . '#' . $m[3];
+	}
+
+	private function is_beta( array $state, string $device, array $accounts ): bool {
+		$b = (array) ( $state['beta'] ?? array() );
+		if ( '' !== $device && in_array( $device, (array) ( $b['devices'] ?? array() ), true ) ) {
+			return true;
+		}
+		return (bool) array_intersect( $accounts, (array) ( $b['accounts'] ?? array() ) );
+	}
+
+	/**
+	 * Cihazların sorduğu runtime'lar (yayın kimsenin kullanmadığı runtime'a gidiyorsa uyarır) ve
+	 * cihaz kaydı (panelde beta seçimi için). En fazla SEEN_EVERY saniyede bir yazılır.
+	 */
+	private function mark_seen( string $brand, array $state, string $channel, string $platform, string $runtime, string $device = '', array $accounts = array() ): void {
+		$now   = time();
+		$last  = (int) ( $state['seen'][ $channel ][ $platform ][ $runtime ] ?? 0 );
+		$dev   = '' !== $device ? (array) ( $this->devices( $brand )[ $device ] ?? array() ) : array();
+		$name  = mb_substr( trim( (string) preg_replace( '/[^\p{L}\p{N} ._,()+-]/u', '', (string) ( $_SERVER['HTTP_FLUX_DEVICE_NAME'] ?? '' ) ) ), 0, 60 );
+		$dirty_dev = '' !== $device && ( ! $dev || $now - (int) ( $dev['last'] ?? 0 ) >= self::SEEN_EVERY || $accounts !== (array) ( $dev['accounts'] ?? array() ) || $runtime !== ( $dev['runtime'] ?? '' ) );
+		if ( $now - $last >= self::SEEN_EVERY && is_dir( $this->root . '/' . $brand ) ) {
+			// Hiç yayın yapılmamış markada diske yazma (rastgele marka adıyla dosya üretilmesin).
+			$this->modify(
+				$brand,
+				static function ( array $s ) use ( $channel, $platform, $runtime, $now ) {
+					$seen = (array) ( $s['seen'][ $channel ][ $platform ] ?? array() );
+					if ( ! isset( $seen[ $runtime ] ) && count( $seen ) >= 50 ) {
+						asort( $seen );
+						$seen = array_slice( $seen, -49, null, true );
+					}
+					$seen[ $runtime ]                   = $now;
+					$s['seen'][ $channel ][ $platform ] = $seen;
+					return $s;
+				}
+			);
+		}
+		if ( $dirty_dev && is_dir( $this->root . '/' . $brand ) ) {
+			$this->modify_devices(
+				$brand,
+				static function ( array $all ) use ( $device, $platform, $runtime, $channel, $name, $accounts, $now ) {
+					$d = (array) ( $all[ $device ] ?? array( 'first' => $now ) );
+					$d['platform'] = $platform;
+					$d['runtime']  = $runtime;
+					$d['channel']  = $channel;
+					$d['accounts'] = $accounts;
+					$d['last']     = $now;
+					if ( '' !== $name ) {
+						$d['name'] = $name;
+					}
+					$all[ $device ] = $d;
+					return $all;
+				}
+			);
+		}
+	}
+
+	/** Cihaz kayıtları: kod → {platform, name, runtime, channel, accounts, first, last}. */
+	public function devices( string $brand ): array {
+		$file = $this->root . '/' . $brand . '/devices.json';
+		if ( ! is_file( $file ) ) {
+			return array();
+		}
+		$d = json_decode( (string) file_get_contents( $file ), true );
+		return is_array( $d ) ? $d : array();
+	}
+
+	private function modify_devices( string $brand, callable $fn ): void {
+		$file = $this->root . '/' . $brand . '/devices.json';
+		$lock = fopen( $file . '.lock', 'c' );
+		if ( ! $lock ) {
 			return;
 		}
-		if ( ! is_dir( $this->root . '/' . $brand ) ) {
-			return; // Hiç yayın yapılmamış markada diske yazma (rastgele marka adıyla dosya üretilmesin).
+		flock( $lock, LOCK_EX );
+		try {
+			$all = $fn( $this->devices( $brand ) );
+			$cut = time() - self::DEVICE_DAYS * 86400;
+			$all = array_filter( $all, static function ( $d ) use ( $cut ) { return (int) ( $d['last'] ?? 0 ) >= $cut; } );
+			if ( count( $all ) > self::MAX_DEVICES ) {
+				uasort( $all, static function ( $a, $b ) { return (int) $a['last'] <=> (int) $b['last']; } );
+				$all = array_slice( $all, -self::MAX_DEVICES, null, true );
+			}
+			$this->write( $file, $all );
+		} finally {
+			flock( $lock, LOCK_UN );
+			fclose( $lock );
+		}
+	}
+
+	/* ------------------------------------------------------------------ */
+	/* Beta                                                                */
+	/* ------------------------------------------------------------------ */
+
+	public function beta( string $brand ): array {
+		$b = (array) ( $this->state( $brand )['beta'] ?? array() );
+		return array( 'devices' => array_values( (array) ( $b['devices'] ?? array() ) ), 'accounts' => array_values( (array) ( $b['accounts'] ?? array() ) ) );
+	}
+
+	/** Bir cihazı beta listesine ekler/çıkarır. */
+	public function set_beta_device( string $brand, string $device, bool $on ): bool {
+		$device = strtolower( trim( $device ) );
+		if ( ! self::valid_brand( $brand ) || ! preg_match( '/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/D', $device ) || ! is_dir( $this->root . '/' . $brand ) ) {
+			return false;
 		}
 		$this->modify(
 			$brand,
-			static function ( array $s ) use ( $channel, $platform, $runtime ) {
-				$seen = (array) ( $s['seen'][ $channel ][ $platform ] ?? array() );
-				if ( ! isset( $seen[ $runtime ] ) && count( $seen ) >= 50 ) {
-					asort( $seen );
-					$seen = array_slice( $seen, -49, null, true );
+			static function ( array $s ) use ( $device, $on ) {
+				$list = array_values( array_diff( (array) ( $s['beta']['devices'] ?? array() ), array( $device ) ) );
+				if ( $on ) {
+					$list[] = $device;
 				}
-				$seen[ $runtime ]                        = time();
-				$s['seen'][ $channel ][ $platform ]      = $seen;
+				$s['beta']['devices'] = array_slice( $list, -500 );
 				return $s;
 			}
 		);
+		return true;
+	}
+
+	/**
+	 * Beta site kullanıcılarını yazar ("site.com#12", satır/virgül). Geçersiz satırlar döner.
+	 *
+	 * @return array{ok:bool,invalid:array<int,string>,count:int}
+	 */
+	public function set_beta_accounts( string $brand, string $text ): array {
+		if ( ! self::valid_brand( $brand ) || ! is_dir( $this->root . '/' . $brand ) ) {
+			return array( 'ok' => false, 'invalid' => array(), 'count' => 0 );
+		}
+		$ok  = array();
+		$bad = array();
+		foreach ( preg_split( '/[\s,]+/', $text, -1, PREG_SPLIT_NO_EMPTY ) as $line ) {
+			$n = self::norm_account( (string) $line );
+			if ( '' === $n ) {
+				$bad[] = mb_substr( (string) $line, 0, 80 );
+			} else {
+				$ok[ $n ] = true;
+			}
+		}
+		$list = array_slice( array_keys( $ok ), 0, 500 );
+		$this->modify(
+			$brand,
+			static function ( array $s ) use ( $list ) {
+				$s['beta']['accounts'] = $list;
+				return $s;
+			}
+		);
+		return array( 'ok' => true, 'invalid' => $bad, 'count' => count( $list ) );
+	}
+
+	/**
+	 * Beta'daki güncellemeyi kararlı kanala terfi ettirir: aynı imzalı manifest, yeniden build yok.
+	 */
+	public function promote( string $brand, string $platform, string $runtime, string $to = 'production' ): bool {
+		if ( ! self::valid_brand( $brand ) || ! in_array( $platform, self::PLATFORMS, true ) || ! self::valid_runtime( $runtime ) || ! self::valid_channel( $to ) || self::BETA === $to ) {
+			return false;
+		}
+		$ok      = false;
+		$dropped = array();
+		$this->modify(
+			$brand,
+			function ( array $s ) use ( $platform, $runtime, $to, &$ok, &$dropped, $brand ) {
+				$id = (string) ( $s['channels'][ self::BETA ][ $platform ][ $runtime ]['active'] ?? '' );
+				if ( '' === $id || ! $this->update( $brand, $id ) ) {
+					return null;
+				}
+				$slot = (array) ( $s['channels'][ $to ][ $platform ][ $runtime ] ?? array() );
+				$hist = array_values( array_diff( (array) ( $slot['history'] ?? array() ), array( $id ) ) );
+				array_unshift( $hist, $id );
+				$dropped          = array_slice( $hist, self::KEEP );
+				$slot['history']  = array_slice( $hist, 0, self::KEEP );
+				$slot['active']   = $id;
+				$slot['rollback'] = null;
+				$slot['changed']  = time();
+				$s['channels'][ $to ][ $platform ][ $runtime ] = $slot;
+				$ok = true;
+				return $s;
+			}
+		);
+		if ( $dropped ) {
+			$this->drop_updates( $brand, $dropped );
+		}
+		if ( $ok ) {
+			$this->log( 'ota', $brand . ' promote ' . $platform . ' ' . $runtime . ' beta→' . $to );
+		}
+		return $ok;
+	}
+
+	public static function valid_brand( string $b ): bool {
+		return (bool) preg_match( '/^[a-z0-9][a-z0-9-]{0,39}$/D', $b );
 	}
 
 	/* ------------------------------------------------------------------ */
@@ -607,7 +817,23 @@ final class Expo {
 					}
 				}
 			}
-			$out[ $brand ] = array( 'rows' => $rows, 'seen_only' => $unpublished, 'disk' => $this->disk( $brand ) );
+			$devices = $this->devices( $brand );
+			uasort( $devices, static function ( $a, $b ) { return (int) ( $b['last'] ?? 0 ) <=> (int) ( $a['last'] ?? 0 ); } );
+			$beta = $this->beta( $brand );
+			$list = array();
+			foreach ( $devices as $id => $d ) {
+				$list[] = array(
+					'id'       => (string) $id,
+					'name'     => (string) ( $d['name'] ?? '' ),
+					'platform' => (string) ( $d['platform'] ?? '' ),
+					'runtime'  => (string) ( $d['runtime'] ?? '' ),
+					'accounts' => array_values( (array) ( $d['accounts'] ?? array() ) ),
+					'first'    => (int) ( $d['first'] ?? 0 ),
+					'last'     => (int) ( $d['last'] ?? 0 ),
+					'beta'     => in_array( (string) $id, $beta['devices'], true ) || (bool) array_intersect( (array) ( $d['accounts'] ?? array() ), $beta['accounts'] ),
+				);
+			}
+			$out[ $brand ] = array( 'rows' => $rows, 'seen_only' => $unpublished, 'disk' => $this->disk( $brand ), 'devices' => $list, 'beta' => $beta );
 		}
 		return $out;
 	}

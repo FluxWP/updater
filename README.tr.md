@@ -99,6 +99,7 @@ FluxWP mobil uygulaması için EAS Update yerine kendi barındırdığımız Exp
 - **İmza CI'da atılır, sunucuda değil.** Özel anahtar GitHub Actions'ta durur; sunucu imzalı baytları saklayıp sunar. Sunucu ele geçse bile imzasız kod gönderilemez, uygulama içindeki sertifikayla doğrular.
 - **Yayın:** /admin › Mobil OTA güncellemeleri › *Yayın anahtarı üret* (ya da `FLX_UPDATE_OTA_KEY`). CI bunu `X-FluxWP-OTA-Key` ile `POST /v1/expo/<marka>/assets/missing`, `/assets/<sha256>`, `/publish`, `/rollback` uçlarına gönderir. Sertifika panele yapıştırılırsa (ya da `FLX_UPDATE_OTA_CERT`) başka anahtarla imzalı yayın reddedilir.
 - **Sunum:** kanal/platform/runtime başına en yeni güncelleme; cihaz zaten onu çalıştırıyorsa ya da eşleşme yoksa imzalı `noUpdateAvailable`; geri dönüşten sonra imzalı `rollBackToEmbedded`. Panelde her satırda sunulan güncelleme, cihazın son sorduğu an, yayını olmayan runtime'lar ve son 8 güncelleme; *Uygula* eskisini yeniden sunar ya da durdurur.
+- **Beta:** `beta` kanalına yayınla, Mobil OTA › Beta altında cihaz ya da site kullanıcısı (`site#kullanıcıNo`) seç; onlar önce alır, *Kararlıya al* herkese açar. Uygulama her kontrolde rastgele cihaz kodu, model ve hesapların `site#kullanıcıNo` bilgisini gönderir (ad/e-posta yok).
 - Cihaz istekleri acil durdurma, anahtarsız dağıtım ve ülke kuralına uyar; yayın webhook gibi acil durdurmada da çalışır. Yönetici API'si: `GET /v1/admin/ota`.
 
 ### Yönetici API'si: başka bir panelden yönetim (1.12.0)

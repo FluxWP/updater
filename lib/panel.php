@@ -207,6 +207,9 @@ final class Panel {
 			'ota_cert_bad'  => array( __( 'Bu bir PEM sertifikası değil (-----BEGIN CERTIFICATE-----).' ), 'err' ),
 			'ota_on'        => array( __( 'Mobil güncelleme değiştirildi. Cihazlar bir sonraki açılışta alır.' ), 'ok' ),
 			'ota_fail'      => array( __( 'Mobil güncelleme değiştirilemedi: kayıt bulunamadı.' ), 'err' ),
+			'ota_beta'      => array( __( 'Beta listesi kaydedildi. Cihaz bir sonraki açılışta beta güncellemesini alır.' ), 'ok' ),
+			'ota_beta_bad'  => array( sprintf( __( 'Beta listesi kaydedildi; okunamayan satırlar atlandı: %s' ), (string) ( $q['bad'] ?? '' ) ), 'err' ),
+			'ota_promoted'  => array( __( 'Beta güncellemesi kararlı kanala alındı. Herkes bir sonraki açılışta alır.' ), 'ok' ),
 			'mkey_off'      => array( __( 'Yönetici anahtarı silindi. O anahtarla artık yönetilemez.' ), 'ok' ),
 			'pruned'        => array( sprintf( __( '%d eski zip silindi (%s).' ), (int) ( $q['n'] ?? 0 ), self::size( (int) ( $q['b'] ?? 0 ) ) ), 'ok' ),
 		);
@@ -476,6 +479,33 @@ final class Panel {
 					$this->server_log( 'ota ' . ( '' === (string) ( $_POST['id'] ?? '' ) ? 'paused ' : 'activated ' ) . (string) ( $_POST['brand'] ?? '' ) . ' ' . (string) ( $_POST['platform'] ?? '' ) . ' ' . (string) ( $_POST['id'] ?? '' ) );
 				}
 				$this->redirect( $ok ? 'ota_on' : 'ota_fail', array(), 'ota' );
+				return;
+
+			case 'ota_beta_device':
+				$ok = ( new Expo( $this->server, $this->config ) )->set_beta_device( (string) ( $_POST['brand'] ?? '' ), (string) ( $_POST['device'] ?? '' ), ! empty( $_POST['on'] ) );
+				if ( $ok ) {
+					$this->server_log( 'ota beta device ' . ( ! empty( $_POST['on'] ) ? 'on ' : 'off ' ) . substr( (string) ( $_POST['device'] ?? '' ), 0, 8 ) );
+				}
+				$this->redirect( $ok ? 'ota_beta' : 'ota_fail', array(), 'ota-beta' );
+				return;
+
+			case 'ota_beta_accounts':
+				$r = ( new Expo( $this->server, $this->config ) )->set_beta_accounts( (string) ( $_POST['brand'] ?? '' ), (string) ( $_POST['accounts'] ?? '' ) );
+				if ( $r['ok'] ) {
+					$this->server_log( 'ota beta accounts ' . $r['count'] );
+				}
+				if ( null !== $this->api ) {
+					$this->api['args'] = array( 'count' => $r['count'], 'invalid' => $r['invalid'] );
+				}
+				$this->redirect( ! $r['ok'] ? 'ota_fail' : ( $r['invalid'] ? 'ota_beta_bad' : 'ota_beta' ), $r['invalid'] ? array( 'bad' => implode( ', ', array_slice( $r['invalid'], 0, 5 ) ) ) : array(), 'ota-beta' );
+				return;
+
+			case 'ota_promote':
+				$ok = ( new Expo( $this->server, $this->config ) )->promote( (string) ( $_POST['brand'] ?? '' ), (string) ( $_POST['platform'] ?? '' ), (string) ( $_POST['runtime'] ?? '' ), (string) ( $_POST['to'] ?? 'production' ) );
+				if ( $ok ) {
+					$this->server_log( 'ota promote ' . (string) ( $_POST['brand'] ?? '' ) . ' ' . (string) ( $_POST['platform'] ?? '' ) );
+				}
+				$this->redirect( $ok ? 'ota_promoted' : 'ota_fail', array(), 'ota' );
 				return;
 
 			case 'test_key':
@@ -1691,6 +1721,45 @@ var L = <?php echo json_encode( array(
 		<?php
 	}
 
+	/** Beta: seçili cihazlar ve site kullanıcıları beta kanalındaki güncellemeyi önce alır. */
+	private function view_ota_beta( string $brand, array $b ): void {
+		$e = array( __CLASS__, 'e' );
+		?>
+		<h3 id="ota-beta"><?php echo __( 'Beta: önce kimler alsın' ); ?></h3>
+		<p class="small muted"><?php echo __( 'Güncellemeyi Actions\'ta <code>beta</code> kanalına yayınlayın; buradaki cihazlar ve kullanıcılar onu alır, diğer herkes kararlıda kalır. Beğenince "Kararlıya al". Cihaz kodu uygulamada Ayarlar › Hakkında altında görünür.' ); ?></p>
+		<?php if ( $b['devices'] ) : ?>
+			<div class="table-wrap"><table>
+				<tr><th><?php echo __( 'Cihaz' ); ?></th><th><?php echo __( 'Hesaplar' ); ?></th><th><?php echo __( 'Son görüldü' ); ?></th><th><?php echo __( 'Beta' ); ?></th></tr>
+				<?php foreach ( array_slice( $b['devices'], 0, 50 ) as $d ) : ?>
+					<?php $direct = in_array( $d['id'], $b['beta']['devices'], true ); ?>
+					<tr>
+						<td class="small"><b><?php echo $e( '' !== $d['name'] ? $d['name'] : $d['platform'] ); ?></b><br><code><?php echo $e( substr( $d['id'], 0, 8 ) ); ?></code> · <?php echo $e( $d['platform'] ); ?></td>
+						<td class="small"><?php echo $d['accounts'] ? $e( implode( ', ', $d['accounts'] ) ) : '<span class="muted">—</span>'; ?></td>
+						<td class="small"><?php echo $e( self::ago( $d['last'] ) ); ?></td>
+						<td>
+							<form method="post" action="#ota-beta" class="inline">
+								<?php echo $this->hidden( 'ota_beta_device' ); ?>
+								<input type="hidden" name="brand" value="<?php echo $e( $brand ); ?>"><input type="hidden" name="device" value="<?php echo $e( $d['id'] ); ?>"><input type="hidden" name="on" value="<?php echo $direct ? '' : '1'; ?>">
+								<button class="btn <?php echo $direct ? '' : 'sec '; ?>sm"><?php echo $direct ? __( 'Beta: açık' ) : __( 'Betaya al' ); ?></button>
+							</form>
+							<?php if ( ! $direct && $d['beta'] ) : ?><span class="small muted"><?php echo __( 'kullanıcıdan' ); ?></span><?php endif; ?>
+						</td>
+					</tr>
+				<?php endforeach; ?>
+			</table></div>
+		<?php else : ?>
+			<p class="small muted"><?php echo __( 'Henüz cihaz kaydı yok: uygulama ilk güncelleme kontrolünde görünür.' ); ?></p>
+		<?php endif; ?>
+		<form method="post" action="#ota-beta">
+			<?php echo $this->hidden( 'ota_beta_accounts' ); ?>
+			<input type="hidden" name="brand" value="<?php echo $e( $brand ); ?>">
+			<label><?php echo __( 'Beta kullanıcılar (her satıra site#kullanıcıNo, ör. fluxwp.com#1)' ); ?></label>
+			<textarea name="accounts" rows="3" style="width:100%;font-family:monospace" placeholder="fluxwp.com#1"><?php echo $e( implode( "\n", $b['beta']['accounts'] ) ); ?></textarea>
+			<p class="row"><button class="btn sec sm"><?php echo __( 'Kaydet' ); ?></button></p>
+		</form>
+		<?php
+	}
+
 	/** Mobil OTA (Expo Updates): yayın anahtarı, imza sertifikası, kanal/runtime başına etkin güncelleme. */
 	private function view_ota( array $args ): void {
 		$e     = array( __CLASS__, 'e' );
@@ -1768,6 +1837,13 @@ var L = <?php echo json_encode( array(
 									</select>
 									<button class="btn sec sm"><?php echo __( 'Uygula' ); ?></button>
 								</form>
+								<?php if ( Expo::BETA === $r['channel'] && $cur ) : ?>
+									<form method="post" action="#ota" style="margin-top:6px">
+										<?php echo $this->hidden( 'ota_promote' ); ?>
+										<input type="hidden" name="brand" value="<?php echo $e( $brand ); ?>"><input type="hidden" name="platform" value="<?php echo $e( $r['platform'] ); ?>"><input type="hidden" name="runtime" value="<?php echo $e( $r['runtime'] ); ?>">
+										<button class="btn sm"><?php echo __( 'Kararlıya al' ); ?></button>
+									</form>
+								<?php endif; ?>
 							</td>
 						</tr>
 					<?php endforeach; ?>
@@ -1775,6 +1851,7 @@ var L = <?php echo json_encode( array(
 						<tr class="muted"><td><?php echo $e( $r['channel'] ); ?></td><td><?php echo $e( $r['platform'] ); ?></td><td class="small"><code title="<?php echo $e( $r['runtime'] ); ?>"><?php echo $e( strlen( $r['runtime'] ) > 14 ? substr( $r['runtime'], 0, 12 ) . '…' : $r['runtime'] ); ?></code></td><td class="small"><?php echo __( 'Bu runtime için yayın yok' ); ?></td><td class="small"><?php echo $e( self::ago( $r['seen'] ) ); ?></td><td></td></tr>
 					<?php endforeach; ?>
 				</table></div>
+				<?php $this->view_ota_beta( $brand, $b ); ?>
 			<?php endforeach; ?>
 			<p class="small muted"><?php echo __( 'Gömülü sürüme dönüş imza ister; GitHub Actions\'taki "Mobile OTA update" iş akışından action=rollback ile yapılır. Buradaki seçim geçmişteki imzalı bir güncellemeyi yeniden sunar.' ); ?></p>
 		</div>
