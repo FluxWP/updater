@@ -152,6 +152,12 @@ final class Panel {
 			return;
 		}
 
+		if ( 'GET' === $method && 'resources' === ( $_GET['ajax'] ?? '' ) ) {
+			header( 'Content-Type: text/html; charset=utf-8' );
+			$this->view_resources_body();
+			return;
+		}
+
 		if ( '' !== $action ) {
 			if ( ! hash_equals( $this->csrf(), (string) ( $_POST['csrf'] ?? '' ) ) ) {
 				$this->notice( __( 'Oturum süresi doldu, tekrar deneyin.' ), 'err' );
@@ -2287,7 +2293,30 @@ var L = <?php echo json_encode( array(
 		return '<div class="meter ' . $cls . '"><i style="width:' . round( $pct, 1 ) . '%"></i></div>';
 	}
 
+	/**
+	 * Kaynaklar bölümü sayfayı bekletmez: sayfa önce boş bir kabukla açılır, içerik (disk gezintisi,
+	 * GitHub kotası) ayrı istekle gelir. JS kapalıysa ya da istek başarısızsa bağlantı sayfayı yeniler.
+	 */
 	private function view_resources(): void {
+		?>
+		<div id="resources-lazy" data-src="<?php echo self::e( '?ajax=resources' ); ?>">
+			<div class="sec-head" id="resources"><h2 class="sec"><?php echo __( 'Kaynaklar' ); ?></h2></div>
+			<div class="card"><p class="small muted"><?php echo __( 'Yükleniyor…' ); ?></p></div>
+		</div>
+		<script>
+		(function () {
+			var box = document.getElementById('resources-lazy');
+			if (!box || !window.fetch) return;
+			fetch(location.pathname + box.getAttribute('data-src'), { credentials: 'same-origin' })
+				.then(function (r) { if (!r.ok) throw 0; return r.text(); })
+				.then(function (h) { box.innerHTML = h; })
+				.catch(function () { box.querySelector('.card').innerHTML = '<p class="small muted"><?php echo self::e( __( 'Kaynaklar yüklenemedi.' ) ); ?> <a href="">' + <?php echo json_encode( __( 'Yenile' ), JSON_UNESCAPED_UNICODE ); ?> + '</a></p>'; });
+		})();
+		</script>
+		<?php
+	}
+
+	private function view_resources_body(): void {
 		$e  = array( __CLASS__, 'e' );
 		$R  = $this->server->resources();
 		$zs = $this->server->zip_stats();
