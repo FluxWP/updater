@@ -1,5 +1,8 @@
 # Changelog
 
+## 1.16.0
+- Mobile OTA updates over the Expo Updates protocol v1 (`/v1/expo/<brand>/manifest`, content-addressed assets), replacing EAS Update for the FluxWP mobile app. Manifests and directives are signed in CI; the server stores the signed bytes and never holds the private key. Publish key and optional certificate in /admin › Mobile OTA updates (`FLX_UPDATE_OTA_KEY`, `FLX_UPDATE_OTA_CERT`). Panel shows each channel/platform/runtime, last device check and the last 8 updates, and can serve an earlier one again or pause. Admin API `GET /v1/admin/ota`.
+
 ## 1.15.6
 - Default setup-wizard category for Flux Ads (`flx-ads`): Growth, after Flux Analytics. A category saved in the panel still wins.
 

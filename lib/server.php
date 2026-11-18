@@ -9,7 +9,7 @@
 
 namespace FLXUpdate;
 
-const VERSION = '1.15.6';
+const VERSION = '1.16.0';
 const DAY_SECONDS = 86400;
 
 class HttpError extends \Exception {
@@ -95,9 +95,14 @@ final class Server {
 				( new AdminApi( $this, $this->config ) )->handle( $method, substr( $path, 10 ) );
 				return;
 			}
+			// Mobil OTA yayını (CI, OTA anahtarı): webhook gibi acil durdurma ve ülke kuralından muaf.
+			if ( Expo::is_publish_path( $path ) ) {
+				( new Expo( $this, $this->config ) )->handle( $method, $path );
+				return;
+			}
 			if ( 0 === strpos( $path, '/v1/' ) && '/v1/webhook' !== $path ) {
 				$this->guard_lockdown();
-				if ( 0 === strpos( $path, '/v1/app/' ) || 0 === strpos( $path, '/v1/fluxapp/' ) ) {
+				if ( 0 === strpos( $path, '/v1/app/' ) || 0 === strpos( $path, '/v1/fluxapp/' ) || 0 === strpos( $path, '/v1/expo/' ) ) {
 					// Uygulama uçları anahtarsızdır: anahtarsız dağıtım ve ülke kuralı aynen uygulanır.
 					if ( ! empty( $this->config['public_off'] ) ) {
 						$this->deny( 'Keyless access is disabled on this server', 401, 'public_disabled' );
@@ -107,6 +112,10 @@ final class Server {
 			}
 			if ( preg_match( '#^/v1/media/([a-z0-9][a-z0-9-]{0,63})/([a-f0-9]{64}\.(?:jpg|png|webp|svg))$#D', $path, $m ) ) {
 				$this->route_preview_media( $m[1], $m[2] ); return;
+			}
+			if ( Expo::is_client_path( $path ) ) {
+				( new Expo( $this, $this->config ) )->handle( $method, $path );
+				return;
 			}
 			if ( '/v1/check' === $path ) {
 				$this->route_check( $method );

@@ -51,7 +51,7 @@ final class Panel {
 	private $api = null;
 
 	/** API'den çağrılamayan işlemler (oturum, dosya yükleme, yönetici anahtarı üretme). */
-	const API_DENY = array( 'setup', 'login', 'logout', 'geo_upload', 'gen_manager_key' );
+	const API_DENY = array( 'setup', 'login', 'logout', 'geo_upload', 'gen_manager_key', 'gen_ota_key' );
 
 	public function __construct( Server $server, array $config ) {
 		$this->server   = $server;
@@ -191,6 +191,10 @@ final class Panel {
 			'georule'       => array( __( 'Ülke erişimi kaydedildi.' ), 'ok' ),
 			'geodb'         => array( __( 'Ülke veritabanı güncellendi.' ), 'ok' ),
 			'geodel'        => array( __( 'Ülke veritabanı silindi.' ), 'ok' ),
+			'ota_cert'      => array( __( 'OTA sertifikası kaydedildi. Yayınlar bununla doğrulanır.' ), 'ok' ),
+			'ota_cert_bad'  => array( __( 'Bu bir PEM sertifikası değil (-----BEGIN CERTIFICATE-----).' ), 'err' ),
+			'ota_on'        => array( __( 'Mobil güncelleme değiştirildi. Cihazlar bir sonraki açılışta alır.' ), 'ok' ),
+			'ota_fail'      => array( __( 'Mobil güncelleme değiştirilemedi: kayıt bulunamadı.' ), 'err' ),
 			'mkey_off'      => array( __( 'Yönetici anahtarı silindi. O anahtarla artık yönetilemez.' ), 'ok' ),
 			'pruned'        => array( sprintf( __( '%d eski zip silindi (%s).' ), (int) ( $q['n'] ?? 0 ), self::size( (int) ( $q['b'] ?? 0 ) ) ), 'ok' ),
 		);
@@ -404,6 +408,38 @@ final class Panel {
 					Settings::update( $this->data_dir, array( 'manager_keys' => $keys ) );
 				}
 				$this->redirect( 'mkey_off', array(), 'manager' );
+				return;
+
+			case 'gen_ota_key':
+				$key = 'flxota_' . bin2hex( random_bytes( 24 ) );
+				Settings::update( $this->data_dir, array( 'ota_key_hash' => hash( 'sha256', $key ), 'ota_key_hint' => substr( $key, -4 ), 'ota_key_created' => time() ) );
+				$this->server_log( 'ota key generated' );
+				$this->page( __( 'Panel' ), array( $this, 'view_dashboard' ), array( 'new_ota_key' => $key ) );
+				return;
+
+			case 'save_ota_cert':
+				$pem = trim( str_replace( "\r", '', (string) ( $_POST['ota_cert'] ?? '' ) ) );
+				if ( '' !== $pem && ( ! preg_match( '/^-----BEGIN CERTIFICATE-----\n[A-Za-z0-9+\/=\n]+\n-----END CERTIFICATE-----$/D', $pem ) || ( function_exists( 'openssl_x509_read' ) && false === @openssl_x509_read( $pem ) ) ) ) {
+					$this->redirect( 'ota_cert_bad', array(), 'ota' );
+					return;
+				}
+				Settings::update( $this->data_dir, array( 'ota_cert' => '' === $pem ? null : $pem . "\n" ) );
+				$this->server_log( '' === $pem ? 'ota cert removed' : 'ota cert saved' );
+				$this->redirect( 'ota_cert', array(), 'ota' );
+				return;
+
+			case 'ota_activate':
+				$ok = ( new Expo( $this->server, $this->config ) )->activate(
+					(string) ( $_POST['brand'] ?? '' ),
+					(string) ( $_POST['channel'] ?? '' ),
+					(string) ( $_POST['platform'] ?? '' ),
+					(string) ( $_POST['runtime'] ?? '' ),
+					(string) ( $_POST['id'] ?? '' )
+				);
+				if ( $ok ) {
+					$this->server_log( 'ota ' . ( '' === (string) ( $_POST['id'] ?? '' ) ? 'paused ' : 'activated ' ) . (string) ( $_POST['brand'] ?? '' ) . ' ' . (string) ( $_POST['platform'] ?? '' ) . ' ' . (string) ( $_POST['id'] ?? '' ) );
+				}
+				$this->redirect( $ok ? 'ota_on' : 'ota_fail', array(), 'ota' );
 				return;
 
 			case 'test_key':
@@ -1615,6 +1651,97 @@ var L = <?php echo json_encode( array(
 			</div>
 		</div>
 		<?php $this->view_manager_keys( $args ); ?>
+		<?php $this->view_ota( $args ); ?>
+		<?php
+	}
+
+	/** Mobil OTA (Expo Updates): yayın anahtarı, imza sertifikası, kanal/runtime başına etkin güncelleme. */
+	private function view_ota( array $args ): void {
+		$e     = array( __CLASS__, 'e' );
+		$set   = Settings::load( $this->data_dir );
+		$expo  = new Expo( $this->server, $this->config );
+		$all   = $expo->overview();
+		$cert  = (string) ( $set['ota_cert'] ?? '' );
+		$env_c = '' === $cert && '' !== (string) ( $this->config['ota_cert'] ?? '' );
+		?>
+		<div class="card" id="ota">
+			<h2><?php echo __( 'Mobil OTA güncellemeleri (Expo)' ); ?></h2>
+			<p class="small muted"><?php echo _f( 'Uygulama (expo-updates) JS ve görsel güncellemelerini mağazaya gitmeden buradan alır. Uygulamadaki adres: <code>%s</code>. Güncellemeleri GitHub Actions imzalayıp yükler; imza anahtarı bu sunucuda durmaz.', $e( $this->server->base_url() . '/v1/expo/flux/manifest' ) ); ?></p>
+			<h3><?php echo __( 'Yayın anahtarı' ); ?></h3>
+			<?php if ( ! empty( $args['new_ota_key'] ) ) : ?>
+				<p><?php echo __( '<b>Bu anahtar bir daha gösterilmez.</b> FluxWP/FluxWP deposunda Settings › Secrets › Actions altına <code>FLUX_OTA_PUBLISH_KEY</code> adıyla ekleyin.' ); ?></p>
+				<pre class="key" id="newota"><?php echo $e( (string) $args['new_ota_key'] ); ?></pre>
+				<p><button class="btn sec sm" type="button" onclick="navigator.clipboard.writeText(document.getElementById('newota').textContent);this.textContent=<?php echo $e( json_encode( __( 'Kopyalandı' ), JSON_UNESCAPED_UNICODE ) ); ?>"><?php echo __( 'Anahtarı kopyala' ); ?></button></p>
+			<?php elseif ( ! empty( $set['ota_key_hash'] ) ) : ?>
+				<p><code>flxota_…<?php echo $e( (string) ( $set['ota_key_hint'] ?? '' ) ); ?></code> <span class="small muted"><?php echo $e( gmdate( 'Y-m-d H:i', (int) ( $set['ota_key_created'] ?? 0 ) ) ); ?> UTC</span></p>
+			<?php elseif ( $expo->key_hashes() ) : ?>
+				<p class="small"><?php echo __( 'Anahtar ortam değişkeninden geliyor (FLX_UPDATE_OTA_KEY).' ); ?></p>
+			<?php else : ?>
+				<p class="small muted"><?php echo __( 'Anahtar yok: yayın kapalı. Cihazlara güncelleme sunulmaz.' ); ?></p>
+			<?php endif; ?>
+			<form method="post" action="#ota"><?php echo $this->hidden( 'gen_ota_key' ); ?><button class="btn sec sm"><?php echo empty( $set['ota_key_hash'] ) ? __( 'Yayın anahtarı üret' ) : __( 'Yeni yayın anahtarı üret' ); ?></button></form>
+
+			<h3><?php echo __( 'İmza sertifikası' ); ?></h3>
+			<p class="small muted"><?php echo __( 'Uygulamaya gömülü sertifikanın aynısı (brands/&lt;marka&gt;/ota-certificate.pem). Kayıtlıysa yanlış anahtarla imzalanmış yayın sunucuda reddedilir. Asıl doğrulamayı uygulama yapar.' ); ?></p>
+			<?php if ( '' !== $cert || $env_c ) : ?>
+				<?php $info = function_exists( 'openssl_x509_parse' ) ? @openssl_x509_parse( '' !== $cert ? $cert : (string) $this->config['ota_cert'] ) : false; ?>
+				<p class="small"><?php echo __( 'Kayıtlı' ); ?><?php if ( is_array( $info ) ) : ?>: <code><?php echo $e( (string) ( $info['subject']['CN'] ?? '' ) ); ?></code>, <?php echo $e( _f( '%s tarihine kadar', gmdate( 'Y-m-d', (int) ( $info['validTo_time_t'] ?? 0 ) ) ) ); ?><?php endif; ?><?php echo $env_c ? ' (FLX_UPDATE_OTA_CERT)' : ''; ?></p>
+			<?php endif; ?>
+			<form method="post" action="#ota">
+				<?php echo $this->hidden( 'save_ota_cert' ); ?>
+				<textarea name="ota_cert" rows="4" style="width:100%;font-family:monospace" placeholder="-----BEGIN CERTIFICATE-----"><?php echo $e( $cert ); ?></textarea>
+				<p class="row"><button class="btn sec sm"><?php echo __( 'Kaydet' ); ?></button></p>
+			</form>
+
+			<?php foreach ( $all as $brand => $b ) : ?>
+				<h3><?php echo $e( $brand ); ?> <span class="small muted"><?php echo $e( self::size( (int) $b['disk'] ) ); ?></span></h3>
+				<div class="table-wrap"><table>
+					<tr><th><?php echo __( 'Kanal' ); ?></th><th><?php echo __( 'Platform' ); ?></th><th><?php echo __( 'Runtime' ); ?></th><th><?php echo __( 'Sunulan' ); ?></th><th><?php echo __( 'Cihaz son sordu' ); ?></th><th></th></tr>
+					<?php foreach ( $b['rows'] as $r ) : ?>
+						<?php
+						$cur = null;
+						foreach ( $r['history'] as $h ) {
+							if ( $h['id'] === $r['active'] ) {
+								$cur = $h;
+							}
+						}
+						?>
+						<tr>
+							<td><?php echo $e( $r['channel'] ); ?></td>
+							<td><?php echo $e( $r['platform'] ); ?></td>
+							<td class="small"><code title="<?php echo $e( $r['runtime'] ); ?>"><?php echo $e( strlen( $r['runtime'] ) > 14 ? substr( $r['runtime'], 0, 12 ) . '…' : $r['runtime'] ); ?></code></td>
+							<td class="small">
+								<?php if ( $cur ) : ?>
+									<b><?php echo $e( '' !== $cur['message'] ? $cur['message'] : substr( $cur['id'], 0, 8 ) ); ?></b><br><span class="muted"><?php echo $e( gmdate( 'Y-m-d H:i', $cur['published'] ) ); ?> UTC · <?php echo $e( self::size( $cur['bytes'] ) ); ?><?php echo '' !== $cur['commit'] ? ' · ' . $e( substr( $cur['commit'], 0, 7 ) ) : ''; ?></span>
+								<?php elseif ( $r['rollback'] ) : ?>
+									<?php echo __( 'Gömülü sürüme dönüş' ); ?>
+								<?php else : ?>
+									<span class="muted"><?php echo __( 'Durduruldu (güncelleme sunulmuyor)' ); ?></span>
+								<?php endif; ?>
+							</td>
+							<td class="small"><?php echo $e( self::ago( $r['seen'] ) ); ?></td>
+							<td>
+								<form method="post" action="#ota" class="row" style="gap:6px;flex-wrap:nowrap">
+									<?php echo $this->hidden( 'ota_activate' ); ?>
+									<input type="hidden" name="brand" value="<?php echo $e( $brand ); ?>"><input type="hidden" name="channel" value="<?php echo $e( $r['channel'] ); ?>"><input type="hidden" name="platform" value="<?php echo $e( $r['platform'] ); ?>"><input type="hidden" name="runtime" value="<?php echo $e( $r['runtime'] ); ?>">
+									<select name="id">
+										<?php foreach ( $r['history'] as $h ) : ?>
+											<option value="<?php echo $e( $h['id'] ); ?>"<?php echo $h['id'] === $r['active'] ? ' selected' : ''; ?>><?php echo $e( gmdate( 'm-d H:i', $h['published'] ) . ' ' . ( '' !== $h['message'] ? mb_substr( $h['message'], 0, 30 ) : substr( $h['id'], 0, 8 ) ) ); ?></option>
+										<?php endforeach; ?>
+										<option value=""<?php echo '' === $r['active'] ? ' selected' : ''; ?>><?php echo __( 'Durdur' ); ?></option>
+									</select>
+									<button class="btn sec sm"><?php echo __( 'Uygula' ); ?></button>
+								</form>
+							</td>
+						</tr>
+					<?php endforeach; ?>
+					<?php foreach ( $b['seen_only'] as $r ) : ?>
+						<tr class="muted"><td><?php echo $e( $r['channel'] ); ?></td><td><?php echo $e( $r['platform'] ); ?></td><td class="small"><code title="<?php echo $e( $r['runtime'] ); ?>"><?php echo $e( strlen( $r['runtime'] ) > 14 ? substr( $r['runtime'], 0, 12 ) . '…' : $r['runtime'] ); ?></code></td><td class="small"><?php echo __( 'Bu runtime için yayın yok' ); ?></td><td class="small"><?php echo $e( self::ago( $r['seen'] ) ); ?></td><td></td></tr>
+					<?php endforeach; ?>
+				</table></div>
+			<?php endforeach; ?>
+			<p class="small muted"><?php echo __( 'Gömülü sürüme dönüş imza ister; GitHub Actions\'taki "Mobile OTA update" iş akışından action=rollback ile yapılır. Buradaki seçim geçmişteki imzalı bir güncellemeyi yeniden sunar.' ); ?></p>
+		</div>
 		<?php
 	}
 

@@ -21,7 +21,7 @@ Varsayılan depo yoktur; depolar /admin › GitHub kartından seçilir. Yalnız 
 GitHub depoları (push → Actions → <slug>-v<sürüm> release + <slug>.zip)
         │ token (private depolar, Contents: Read-only)
         ▼
-update server   /admin (panel) · /v1/check · /v1/download/<slug>/<sürüm>.zip · /v1/app/* · /v1/webhook
+update server   /admin (panel) · /v1/check · /v1/download/<slug>/<sürüm>.zip · /v1/app/* · /v1/expo/* · /v1/webhook
         ▲ anahtarsız: public paketler · X-FluxWP-Site-Key: + anahtarın private paketleri
 WordPress siteleri (FluxWP Panel)
 ```
@@ -91,6 +91,15 @@ Her `/v1/check` isteğinde kurulu FluxWP paketleri ve sürümleri, FluxWP Panel 
 FluxWP Panel 1.0.8+ site adresini, WordPress ve PHP sürümünü, saat dilimini ve dili yalnız yönetici izin verdiyse ekler (kurulum sihirbazında ya da FluxWP Panel › Ayarlar'da "Ürünü geliştirmemize yardımcı olun"); izin yoksa `"usage": false` gönderir. İzin yokken sunucu bunların hiçbirini saklamaz ve siteyi kurulum kimliğiyle tanır. Ülke kodu izinden bağımsız olarak isteğin IP'sinden çıkarılır (IP saklanmaz). Kurulum kimliği sunan bir denetim, aynı kimliğe ait eski anahtarsız kaydı (adrese bağlı kalmış olan dahil) kendi kaydına katar. Farklı bir kurulum kimliği yanına yazılır, eskisinin yerine geçmez. `usage` alanı göndermeyen eski istemciler izinli sayılır. Anahtarsız satırların sayısı sınırlıdır; kurulum kimliği seli istatistik dosyasını sınırsız büyütemez.
 
 IP adresi istatistiklere ve `data/access.log`'a yazılmaz. Hatalı anahtar denemesinde yalnız ülke kodu durur. Giriş ve anahtar hataları 10 dakika boyunca, IP olmayan tuzlu bir özette sayılır; `access.log` 90 günden eski satırları siler. Günlük sayaçlar 120 gün, site kayıtları son denetimden sonra 180 gün saklanır.
+
+### Mobil OTA güncellemeleri: Expo (1.16.0)
+
+FluxWP mobil uygulaması için EAS Update yerine kendi barındırdığımız Expo Updates protokolü v1. Uygulama `GET /v1/expo/<marka>/manifest` ister (`expo-platform`, `expo-runtime-version`, `expo-channel-name`); varlıklar içerik adresli `/v1/expo/<marka>/assets/<sha256>.<uzantı>`.
+
+- **İmza CI'da atılır, sunucuda değil.** Özel anahtar GitHub Actions'ta durur; sunucu imzalı baytları saklayıp sunar. Sunucu ele geçse bile imzasız kod gönderilemez, uygulama içindeki sertifikayla doğrular.
+- **Yayın:** /admin › Mobil OTA güncellemeleri › *Yayın anahtarı üret* (ya da `FLX_UPDATE_OTA_KEY`). CI bunu `X-FluxWP-OTA-Key` ile `POST /v1/expo/<marka>/assets/missing`, `/assets/<sha256>`, `/publish`, `/rollback` uçlarına gönderir. Sertifika panele yapıştırılırsa (ya da `FLX_UPDATE_OTA_CERT`) başka anahtarla imzalı yayın reddedilir.
+- **Sunum:** kanal/platform/runtime başına en yeni güncelleme; cihaz zaten onu çalıştırıyorsa ya da eşleşme yoksa imzalı `noUpdateAvailable`; geri dönüşten sonra imzalı `rollBackToEmbedded`. Panelde her satırda sunulan güncelleme, cihazın son sorduğu an, yayını olmayan runtime'lar ve son 8 güncelleme; *Uygula* eskisini yeniden sunar ya da durdurur.
+- Cihaz istekleri acil durdurma, anahtarsız dağıtım ve ülke kuralına uyar; yayın webhook gibi acil durdurmada da çalışır. Yönetici API'si: `GET /v1/admin/ota`.
 
 ### Yönetici API'si: başka bir panelden yönetim (1.12.0)
 
