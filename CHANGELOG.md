@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.16.1
+- The admin panel opens without waiting for slow parts. The Resources section loads after the page, from a separate request, so the usage overview, chart and tables no longer stall behind it.
+- The `data/` folder size walk (zips, previews, locks) is cached for 10 minutes instead of running on every panel view and admin API call. Pruning zips or clearing the log refreshes it.
+- The GitHub API quota check times out after 4 seconds, keeps the last good value when GitHub is slow and does not retry for 60 seconds after a failure.
+- Statistics fold prunes old days and sites once per batch instead of once per event.
+
 ## 1.16.0
 - Mobile OTA updates over the Expo Updates protocol v1 (`/v1/expo/<brand>/manifest`, content-addressed assets), replacing EAS Update for the FluxWP mobile app. Manifests and directives are signed in CI; the server stores the signed bytes and never holds the private key. Publish key and optional certificate in /admin › Mobile OTA updates (`FLX_UPDATE_OTA_KEY`, `FLX_UPDATE_OTA_CERT`). Panel shows each channel/platform/runtime, last device check and the last 8 updates, and can serve an earlier one again or pause. Admin API `GET /v1/admin/ota`.
 

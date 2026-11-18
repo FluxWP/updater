@@ -9,7 +9,7 @@
 
 namespace FLXUpdate;
 
-const VERSION = '1.16.0';
+const VERSION = '1.16.1';
 const DAY_SECONDS = 86400;
 
 class HttpError extends \Exception {
@@ -437,6 +437,7 @@ final class Server {
 	 * @return array{deleted:int,bytes:int}
 	 */
 	public function prune_zips( ?string $only = null ): array {
+		@unlink( $this->data_dir . '/resources.json' );
 		$out  = array( 'deleted' => 0, 'bytes' => 0 );
 		$root = $this->data_dir . '/zips';
 		if ( ! is_dir( $root ) ) {
@@ -1021,16 +1022,20 @@ final class Server {
 		return array( 'repos' => $data['repos'], 'error' => $data['error'] );
 	}
 
-	/** GitHub API kotası (kota harcamaz). 5 dakika önbellekte. */
+	/**
+	 * GitHub API kotası (kota harcamaz). 5 dakika önbellekte; panel yüklenirken uzun beklemez:
+	 * 4 saniyelik zaman aşımı, başarısızsa son iyi değer ve 60 saniye yeniden denememe.
+	 */
 	public function github_rate(): array {
 		$file  = $this->data_dir . '/gh-rate.json';
 		$cache = $this->read_json( $file );
-		if ( isset( $cache['at'] ) && time() - (int) $cache['at'] < 300 ) {
+		$ttl   = empty( $cache['error'] ) ? 300 : 60;
+		if ( isset( $cache['at'] ) && time() - (int) $cache['at'] < $ttl ) {
 			return $cache;
 		}
 		$data = array( 'at' => time() );
 		try {
-			$r    = json_decode( $this->github( '/rate_limit', 'application/vnd.github+json', null, false ), true );
+			$r    = json_decode( $this->github( '/rate_limit', 'application/vnd.github+json', null, false, 0, 4 ), true );
 			$core = is_array( $r ) ? (array) ( $r['resources']['core'] ?? ( $r['rate'] ?? array() ) ) : array();
 			$data += array(
 				'limit'     => (int) ( $core['limit'] ?? 0 ),
@@ -1038,15 +1043,27 @@ final class Server {
 				'reset'     => (int) ( $core['reset'] ?? 0 ),
 			);
 		} catch ( \Throwable $e ) {
+			$data = array_diff_key( $cache, array( 'error' => 1 ) );
+			$data['at']    = time();
 			$data['error'] = $e->getMessage();
 		}
 		$this->write_json( $file, $data );
 		return $data;
 	}
 
-	/** Sunucu kaynakları: disk, data klasörü, önbellek, PHP. */
-	public function resources(): array {
+	/**
+	 * data/ klasörünün türe göre boyutları. Klasörü baştan sona gezmek paylaşımlı diskte yavaştır
+	 * (zip, önizleme ve kilit dosyaları binlerce olabilir), bu yüzden 10 dakika önbellekte tutulur.
+	 *
+	 * @return array{zips:int,logs:int,cache:int,stats:int,other:int}
+	 */
+	private function data_sizes(): array {
 		$dir   = $this->data_dir;
+		$file  = $dir . '/resources.json';
+		$cache = $this->read_json( $file );
+		if ( isset( $cache['at'], $cache['sizes'] ) && time() - (int) $cache['at'] < 600 ) {
+			return (array) $cache['sizes'];
+		}
 		$sizes = array( 'zips' => 0, 'logs' => 0, 'cache' => 0, 'stats' => 0, 'other' => 0 );
 		if ( is_dir( $dir ) ) {
 			$it = new \RecursiveIteratorIterator( new \RecursiveDirectoryIterator( $dir, \FilesystemIterator::SKIP_DOTS ) );
@@ -1068,7 +1085,15 @@ final class Server {
 					$sizes['other'] += $sz;
 				}
 			}
+			$this->write_json( $file, array( 'at' => time(), 'sizes' => $sizes ) );
 		}
+		return $sizes;
+	}
+
+	/** Sunucu kaynakları: disk, data klasörü, önbellek, PHP. */
+	public function resources(): array {
+		$dir   = $this->data_dir;
+		$sizes = $this->data_sizes();
 		$rel = $this->read_json( $dir . '/releases.json' );
 		return array(
 			'data'       => $sizes,
@@ -1088,6 +1113,7 @@ final class Server {
 
 	/** access.log'u boşaltır. */
 	public function clear_log(): int {
+		@unlink( $this->data_dir . '/resources.json' );
 		$f = $this->data_dir . '/access.log';
 		$n = is_file( $f ) ? (int) filesize( $f ) : 0;
 		@unlink( $f );

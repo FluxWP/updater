@@ -559,11 +559,11 @@ final class Stats {
 					continue;
 				}
 				$all = $this->apply_event( $all, $ev );
-				$this->prune( $all );
 				$jseq    = $seq;
 				$applied = true;
 			}
 			if ( $applied ) {
+				$this->prune( $all );
 				$all['jseq'] = $jseq;
 				$tmp         = $this->file . '.' . getmypid() . '.tmp';
 				$json        = json_encode( $all, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE );
