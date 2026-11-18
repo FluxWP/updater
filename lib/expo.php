@@ -725,12 +725,22 @@ final class Expo {
 		}
 	}
 
+	/** Marka başına disk kullanımı. Panel her açılışta klasörü gezmesin diye 10 dakika önbellekte (disk.json). */
 	private function disk( string $brand ): int {
+		$cache = $this->root . '/' . $brand . '/disk.json';
+		$c     = is_file( $cache ) ? json_decode( (string) file_get_contents( $cache ), true ) : null;
+		if ( is_array( $c ) && isset( $c['at'], $c['bytes'] ) && time() - (int) $c['at'] < 600 ) {
+			return (int) $c['bytes'];
+		}
 		$n = 0;
 		foreach ( array( 'assets', 'updates' ) as $sub ) {
 			foreach ( (array) glob( $this->root . '/' . $brand . '/' . $sub . '/*', GLOB_NOSORT ) as $f ) {
 				$n += (int) @filesize( (string) $f );
 			}
+		}
+		$tmp = $cache . '.' . getmypid() . '.tmp';
+		if ( false !== @file_put_contents( $tmp, json_encode( array( 'at' => time(), 'bytes' => $n ) ) ) ) {
+			@rename( $tmp, $cache );
 		}
 		return $n;
 	}
