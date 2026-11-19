@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.18.1
+- The admin panel no longer waits for GitHub. When the release list cache had expired (5 minutes, so almost every panel visit), the page itself re-read every release page of every repository before drawing (FluxWP/fluxwp alone is 9 pages, ~5 MB), which held the page for 10-40 s. The panel and the admin API now draw from the cached list and refresh it after the response (`?ajax=releases` in the panel, after the JSON is sent in the API).
+- Release refresh uses a conditional request on the first page of each repository. If nothing changed GitHub answers 304 (not counted against the rate limit) and the cached releases are kept, so a refresh is two small requests instead of a dozen large ones. Each repository is still read in full once an hour, and the webhook and Reload packages still force a full read.
+
 ## 1.18.0
 - Mobile OTA beta: devices (random code the app sends) and site users (`site#userID`) on the beta list get the `beta` channel's update for their runtime; everyone else stays on the channel their build asks for. *Promote to stable* serves the same signed beta update on `production`. Device records (model, platform, runtime, account ids, first/last seen) are kept 180 days, at most 2000. Panel: Mobile OTA updates › Beta. Admin API: actions `ota_beta_device`, `ota_beta_accounts`, `ota_promote`; `GET /v1/admin/ota` includes devices and beta lists, plus `manifest_url`, `key` (`set`, `hint`, `created`, `env`) and `cert` (`set`, `pem`, `cn`, `valid_to`, `env`) so a manager screen can show setup status.
 

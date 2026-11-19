@@ -158,6 +158,19 @@ final class Panel {
 			return;
 		}
 
+		if ( 'GET' === $method && 'releases' === ( $_GET['ajax'] ?? '' ) ) {
+			header( 'Content-Type: application/json; charset=utf-8' );
+			ignore_user_abort( true );
+			$ok = true;
+			try {
+				$this->server->releases();
+			} catch ( \Throwable $ex ) {
+				$ok = false;
+			}
+			echo json_encode( array( 'ok' => $ok ) );
+			return;
+		}
+
 		if ( 'GET' === $method && 'resources' === ( $_GET['ajax'] ?? '' ) ) {
 			header( 'Content-Type: text/html; charset=utf-8' );
 			$this->view_resources_body();
@@ -1410,8 +1423,10 @@ var L = <?php echo json_encode( array(
 			$gh_error = __( 'GitHub token girilmemiş.' );
 		} else {
 			try {
-				$catalog = $this->server->catalog( 'beta' );
-				$stable  = $this->server->catalog( 'stable' );
+				// Sayfa GitHub'ı beklemez: süresi geçmiş olsa da önbellekteki liste basılır,
+				// yenileme sayfa açıldıktan sonra ?ajax=releases ile yapılır.
+				$catalog = $this->server->catalog( 'beta', null, true );
+				$stable  = $this->server->catalog( 'stable', null, true );
 			} catch ( \Throwable $ex ) {
 				$gh_error = $this->server->test_github();
 				$gh_error = $gh_error ? __( 'GitHub\'a erişilemedi: ' ) . $gh_error : __( 'GitHub release listesi okunamadı.' );
@@ -1675,6 +1690,9 @@ var L = <?php echo json_encode( array(
 			</form>
 		</div>
 		<?php $this->view_previews( $catalog ); ?>
+		<?php if ( $catalog && $this->server->releases_stale() ) : ?>
+		<script>window.fetch && fetch(location.pathname + '?ajax=releases', { credentials: 'same-origin' }).catch(function () {});</script>
+		<?php endif; ?>
 
 
 		<div class="grid">
