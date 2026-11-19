@@ -33,6 +33,9 @@ final class AdminApi {
 	/** @var array Doğrulanan anahtar: hash, name. */
 	private $key = array();
 
+	/** @var bool Yanıt gönderildikten sonra release listesi yenilensin mi. */
+	private $refresh_after = false;
+
 	public function __construct( Server $server, array $config ) {
 		$this->server   = $server;
 		$this->config   = $config;
@@ -143,7 +146,12 @@ final class AdminApi {
 			return array( array(), array(), __( 'GitHub token girilmemiş.' ) );
 		}
 		try {
-			return array( $this->server->catalog( 'beta' ), $this->server->catalog( 'stable' ), '' );
+			$stale = $this->server->releases_stale();
+			$out   = array( $this->server->catalog( 'beta', null, true ), $this->server->catalog( 'stable', null, true ), '' );
+			if ( $stale ) {
+				$this->refresh_after = true;
+			}
+			return $out;
 		} catch ( \Throwable $ex ) {
 			$err = $this->server->test_github();
 			return array( array(), array(), $err ? __( 'GitHub\'a erişilemedi: ' ) . $err : __( 'GitHub release listesi okunamadı.' ) );
@@ -421,6 +429,28 @@ final class AdminApi {
 	private function json( array $data, int $code = 200 ): void {
 		http_response_code( $code );
 		header( 'Content-Type: application/json; charset=utf-8' );
-		echo json_encode( $data, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_PARTIAL_OUTPUT_ON_ERROR );
+		$body = (string) json_encode( $data, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_PARTIAL_OUTPUT_ON_ERROR );
+		if ( ! $this->refresh_after ) {
+			echo $body;
+			return;
+		}
+		// Süresi geçmiş katalogla yanıt verildi: yanıtı kapatıp GitHub'ı arkada oku.
+		$this->refresh_after = false;
+		ignore_user_abort( true );
+		header( 'Content-Length: ' . strlen( $body ) );
+		header( 'Connection: close' );
+		echo $body;
+		while ( ob_get_level() > 0 ) {
+			ob_end_flush();
+		}
+		flush();
+		if ( function_exists( 'fastcgi_finish_request' ) ) {
+			fastcgi_finish_request();
+		}
+		try {
+			$this->server->releases();
+		} catch ( \Throwable $e ) {
+			error_log( '[flx-update] admin api release refresh: ' . $e->getMessage() );
+		}
 	}
 }

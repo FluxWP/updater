@@ -171,6 +171,14 @@ if ( false !== strpos( $path, '/releases' ) ) {
 	file_put_contents( $stateFile, json_encode( $state ), LOCK_EX );
 	if ( 'fail' === ( $state['mode'] ?? '' ) ) { http_response_code( 503 ); echo 'unavailable'; return; }
 	if ( 'slow' === ( $state['mode'] ?? '' ) ) { sleep( 3 ); }
+	$tag = '"v' . (int) ( $state['etag'] ?? 1 ) . '"';
+	header( 'ETag: ' . $tag );
+	if ( $tag === ( $_SERVER['HTTP_IF_NONE_MATCH'] ?? '' ) ) {
+		$state['hits'] = (int) ( $state['hits'] ?? 0 ) + 1;
+		file_put_contents( $stateFile, json_encode( $state ), LOCK_EX );
+		http_response_code( 304 );
+		return;
+	}
 	header( 'Content-Type: application/json' );
 	echo json_encode( array( array(
 		'tag_name' => 'flx-demo-v2.0.0', 'draft' => false, 'prerelease' => false,
@@ -256,6 +264,40 @@ ROUTER;
 	$forced = $server->releases();
 	same( calls_of( $state ), 1, 'Reload packages forces a GitHub refresh' );
 	same( version_of( $forced ), '2.0.0', 'The forced refresh stores the catalog' );
+
+	// Süresi geçen katalog: ilk sayfa değişmediyse (304) eski liste korunur, gövde indirilmez.
+	$etagged = json_decode( (string) file_get_contents( $data . '/releases.json' ), true );
+	same( (string) ( $etagged['etags']['example/public'] ?? '' ), '"v1"', 'A full refresh stores the first page ETag' );
+	$etagged['at'] = time() - 1000;
+	file_put_contents( $data . '/releases.json', json_encode( $etagged ) );
+	file_put_contents( $state, json_encode( array( 'calls' => 0, 'mode' => 'ok' ) ), LOCK_EX );
+	$same304 = $server->releases();
+	$st      = json_decode( (string) file_get_contents( $state ), true );
+	same( (int) ( $st['hits'] ?? 0 ), 1, 'An unchanged first page is answered with 304' );
+	same( version_of( $same304 ), '2.0.0', 'A 304 keeps the cached releases' );
+	$after = json_decode( (string) file_get_contents( $data . '/releases.json' ), true );
+	same( (int) $after['at'] > time() - 5, true, 'A 304 marks the catalog fresh' );
+	same( (int) ( $after['full_at']['example/public'] ?? 0 ), (int) ( $etagged['full_at']['example/public'] ?? -1 ), 'A 304 keeps the last full read time' );
+
+	// Panel: süresi geçmiş katalog GitHub beklenmeden basılır.
+	$after['at'] = time() - 1000;
+	file_put_contents( $data . '/releases.json', json_encode( $after ) );
+	file_put_contents( $state, json_encode( array( 'calls' => 0, 'mode' => 'slow' ) ), LOCK_EX );
+	$started = hrtime( true );
+	$panel   = $server->catalog( 'beta', null, true );
+	same( ( hrtime( true ) - $started ) / 1e9 < 1, true, 'The panel catalog does not wait for GitHub' );
+	same( (string) ( $panel['flx-demo']['version'] ?? '' ), '2.0.0', 'The panel shows the cached catalog' );
+	same( calls_of( $state ), 0, 'The panel catalog does not call GitHub' );
+	same( $server->releases_stale(), true, 'The panel knows the catalog needs a refresh' );
+
+	// Saatte bir ETag yok sayılır, depo baştan okunur.
+	$after['full_at']['example/public'] = time() - Server::RELEASE_FULL_TTL - 1;
+	file_put_contents( $data . '/releases.json', json_encode( $after ) );
+	file_put_contents( $state, json_encode( array( 'calls' => 0, 'mode' => 'ok' ) ), LOCK_EX );
+	$server->releases();
+	$st = json_decode( (string) file_get_contents( $state ), true );
+	same( (int) ( $st['hits'] ?? 0 ), 0, 'An old full read skips the ETag' );
+	same( $server->releases_stale(), false, 'A refreshed catalog is not stale' );
 
 	file_put_contents( $state, json_encode( array( 'calls' => 0, 'mode' => 'ok' ) ), LOCK_EX );
 	$prepared = json_encode( array( 'at' => time(), 'sig' => $sig, 'items' => array( release_row( '9.9.9' ) ), 'errors' => array() ) );

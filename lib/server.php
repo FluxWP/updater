@@ -9,7 +9,7 @@
 
 namespace FLXUpdate;
 
-const VERSION = '1.18.0';
+const VERSION = '1.18.1';
 const DAY_SECONDS = 86400;
 
 class HttpError extends \Exception {
@@ -40,6 +40,9 @@ final class Server {
 
 	/** Önbellek hiç yokken diğer isteklerin tek yenilemeyi bekleme üst sınırı (saniye). */
 	const RELEASE_WAIT = 20;
+
+	/** ETag ile atlanan sayfalar bu süreden eskiyse depo baştan okunur (eski release düzenlemeleri için). */
+	const RELEASE_FULL_TTL = 3600;
 
 	public function __construct( array $config ) {
 		$this->config = $config + array(
@@ -941,7 +944,7 @@ final class Server {
 		if ( ! hash_equals( $want, $sig ) ) {
 			throw new HttpError( 'Bad signature', 401 );
 		}
-		@unlink( $this->data_dir . '/releases.json' );
+		$this->expire_releases();
 		@unlink( $this->data_dir . '/app-releases.json' );
 		@unlink( $this->data_dir . '/fluxapp-releases.json' );
 		$this->log( 'webhook', (string) ( $_SERVER['HTTP_X_GITHUB_EVENT'] ?? '' ) );
@@ -951,6 +954,11 @@ final class Server {
 			fastcgi_finish_request();
 		}
 		ignore_user_abort( true );
+		try {
+			$this->releases();
+		} catch ( \Throwable $e ) {
+			$this->log( 'releases', $e->getMessage() );
+		}
 		try {
 			$this->sync_preview_sources( true );
 		} catch ( \Throwable $e ) {
@@ -1139,7 +1147,7 @@ final class Server {
 	public function flush_cache(): void {
 		( new Previews( $this->data_dir ) )->invalidate();
 		foreach ( glob( $this->data_dir . '/preview-media-locks/*.failed' ) ?: array() as $failure ) { unlink( $failure ); }
-		@unlink( $this->data_dir . '/releases.json' );
+		$this->expire_releases();
 		@unlink( $this->data_dir . '/app-releases.json' );
 		@unlink( $this->data_dir . '/fluxapp-releases.json' );
 		@unlink( $this->data_dir . '/gh-repos.json' );
@@ -1678,9 +1686,9 @@ final class Server {
 	/**
 	 * Son sürümler: slug => release. $channel 'stable' ise pre-release'ler atlanır.
 	 */
-	public function catalog( string $channel, ?array $site = null ): array {
+	public function catalog( string $channel, ?array $site = null, bool $stale_ok = false ): array {
 		$out = array();
-		foreach ( $this->releases() as $r ) {
+		foreach ( $stale_ok ? $this->releases_stale_ok() : $this->releases() as $r ) {
 			if ( ! $r['asset_id'] || ( $r['prerelease'] && 'beta' !== $channel ) || ( null !== $site && ! $this->can_see( $site, $r ) ) ) {
 				continue;
 			}
@@ -1785,6 +1793,43 @@ final class Server {
 		}
 	}
 
+	/**
+	 * Panel ve yönetici API'si için: önbellekte liste varsa süresi geçmiş olsa da hemen döner,
+	 * GitHub'ı beklemez. Yenileme sayfa açıldıktan sonra ayrı istekle (refresh_releases) yapılır.
+	 * Hiç liste yoksa normal releases() gibi okur.
+	 */
+	public function releases_stale_ok(): array {
+		$cache = $this->read_json( $this->data_dir . '/releases.json' );
+		if ( $this->releases_usable( $cache ) ) {
+			return self::drop_shadowed( (array) $cache['items'] );
+		}
+		return $this->releases();
+	}
+
+	/**
+	 * Webhook ve "Paketleri yeniden oku": liste silinmez, süresi geçmiş sayılır ve ETag'ler
+	 * atılır. Bir sonraki okuma depoları baştan okur; o sırada panel ve diğer istekler eski
+	 * listeyi bekletmeden verir.
+	 */
+	public function expire_releases(): void {
+		$file  = $this->data_dir . '/releases.json';
+		$cache = $this->read_json( $file );
+		if ( ! $this->releases_usable( $cache ) ) {
+			@unlink( $file );
+			return;
+		}
+		$cache['at'] = 0;
+		unset( $cache['etags'], $cache['full_at'], $cache['fail_until'] );
+		$this->write_json( $file, $cache );
+	}
+
+	/** Önbellekteki release listesinin süresi geçti mi (ya da depo listesi değişti mi). */
+	public function releases_stale(): bool {
+		$cache = $this->read_json( $this->data_dir . '/releases.json' );
+		$sig   = md5( json_encode( $this->repos() ) );
+		return ! $this->releases_fresh( $cache, $sig ) && ! $this->releases_backing_off( $cache, $sig );
+	}
+
 	/** Taze liste ya da backoff içindeki eski liste. Yenilemek gerekiyorsa null. */
 	private function release_result( array $cache, string $sig ): ?array {
 		if ( $this->releases_fresh( $cache, $sig ) ) {
@@ -1823,11 +1868,43 @@ final class Server {
 		$items  = array();
 		$errors = array();
 		$repos  = $this->repos();
+		$etags  = array();
+		$fulls  = array();
+		$o_etag = (array) ( $cache['etags'] ?? array() );
+		$o_full = (array) ( $cache['full_at'] ?? array() );
 		foreach ( $repos as $src ) {
 			try {
-				$got = array();
+				$got  = array();
+				$repo = $src['repo'];
+				// İlk sayfa değişmediyse (304, GitHub kotasından düşmez) depo önbellekten gelir;
+				// yeni release her zaman ilk sayfayı değiştirir. Saatte bir yine baştan okunur.
+				$etag = (string) ( $o_etag[ $repo ] ?? '' );
+				$old  = array();
+				foreach ( (array) ( $cache['items'] ?? array() ) as $o ) {
+					if ( ( $o['repo'] ?? '' ) === $repo ) {
+						$old[] = $o;
+					}
+				}
+				$full_at = (int) ( $o_full[ $repo ] ?? 0 );
+				if ( '' === $etag || ! $old || time() - $full_at >= self::RELEASE_FULL_TTL ) {
+					$etag = '';
+				}
 				for ( $page = 1; $page <= 10; $page++ ) {
-					$list = json_decode( $this->github( '/repos/' . $src['repo'] . '/releases?per_page=100&page=' . $page, 'application/vnd.github+json', null, ! $src['public'] ), true );
+					$path = '/repos/' . $repo . '/releases?per_page=100&page=' . $page;
+					if ( 1 === $page ) {
+						$res = $this->github_etag( $path, $etag, ! $src['public'] );
+						if ( 304 === $res['code'] ) {
+							$got            = $old;
+							$etags[ $repo ] = $etag;
+							$fulls[ $repo ] = $full_at;
+							break;
+						}
+						$etags[ $repo ] = $res['etag'];
+						$fulls[ $repo ] = time();
+						$list           = json_decode( $res['body'], true );
+					} else {
+						$list = json_decode( $this->github( $path, 'application/vnd.github+json', null, ! $src['public'] ), true );
+					}
 					if ( ! is_array( $list ) || ! $list ) {
 						break;
 					}
@@ -1847,6 +1924,7 @@ final class Server {
 				$items = array_merge( $items, $got );
 			} catch ( \Throwable $e ) {
 				// GitHub'a ulaşılamazsa bu deponun eski önbelleğiyle devam et.
+				unset( $etags[ $src['repo'] ], $fulls[ $src['repo'] ] );
 				error_log( '[flx-update] releases ' . $src['repo'] . ': ' . $e->getMessage() );
 				$errors[ $src['repo'] ] = $e->getMessage();
 				foreach ( (array) ( $cache['items'] ?? array() ) as $old ) {
@@ -1876,7 +1954,7 @@ final class Server {
 			throw new HttpError( 'Release list unavailable', 502 );
 		}
 
-		$this->write_json( $file, array( 'at' => time(), 'sig' => $sig, 'items' => $items, 'errors' => $errors ) );
+		$this->write_json( $file, array( 'at' => time(), 'sig' => $sig, 'items' => $items, 'errors' => $errors, 'etags' => array_filter( $etags ), 'full_at' => $fulls ) );
 		return self::drop_shadowed( $items );
 	}
 
@@ -2022,6 +2100,60 @@ final class Server {
 			throw new \RuntimeException( 'GitHub HTTP ' . $code . ' for ' . $path );
 		}
 		return $sink ? '' : ( $max_bytes > 0 ? $buffer : (string) $res );
+	}
+
+	/**
+	 * Koşullu GET: If-None-Match ile. 304'te gövde boş döner.
+	 *
+	 * @return array{code:int,body:string,etag:string}
+	 */
+	private function github_etag( string $path, string $etag, bool $need_token = true ): array {
+		$token = (string) $this->config['github_token'];
+		if ( '' === $token && $need_token ) {
+			throw new \RuntimeException( 'github_token is empty' );
+		}
+		$headers = array(
+			'Accept: application/vnd.github+json',
+			'X-GitHub-Api-Version: 2022-11-28',
+			'User-Agent: flx-update-server/' . VERSION,
+		);
+		if ( '' !== $token ) {
+			$headers[] = 'Authorization: Bearer ' . $token;
+		}
+		if ( '' !== $etag ) {
+			$headers[] = 'If-None-Match: ' . $etag;
+		}
+		$got = '';
+		$ch  = curl_init( rtrim( $this->config['github_api'], '/' ) . $path );
+		curl_setopt_array(
+			$ch,
+			array(
+				CURLOPT_HTTPHEADER     => $headers,
+				CURLOPT_FOLLOWLOCATION => true,
+				CURLOPT_MAXREDIRS      => 5,
+				CURLOPT_CONNECTTIMEOUT => 10,
+				CURLOPT_TIMEOUT        => 30,
+				CURLOPT_FAILONERROR    => false,
+				CURLOPT_RETURNTRANSFER => true,
+				CURLOPT_HEADERFUNCTION => static function ( $handle, string $line ) use ( &$got ): int {
+					if ( 0 === stripos( $line, 'etag:' ) ) {
+						$got = trim( substr( $line, 5 ) );
+					}
+					return strlen( $line );
+				},
+			)
+		);
+		$res  = curl_exec( $ch );
+		$code = (int) curl_getinfo( $ch, CURLINFO_RESPONSE_CODE );
+		$err  = curl_error( $ch );
+		curl_close( $ch );
+		if ( false === $res ) {
+			throw new \RuntimeException( 'GitHub request failed: ' . $err );
+		}
+		if ( $code >= 400 ) {
+			throw new \RuntimeException( 'GitHub HTTP ' . $code . ' for ' . $path );
+		}
+		return array( 'code' => $code, 'body' => 304 === $code ? '' : (string) $res, 'etag' => 304 === $code ? $etag : $got );
 	}
 
 	/** Asset indirme adresi: GitHub'ın verdiği yönlendirmeyi izlemeden döner. */
