@@ -1,5 +1,8 @@
 # Changelog
 
+## 1.19.0
+- Connected sites: tick rows and *Remove selected from list* (with confirmation) to drop leftover records, e.g. duplicate `localhost` rows from reinstalled Docker sites. The rows are also removed from the unique-site counts; check totals stay. Keys and pending key handouts are not touched, and an install that checks again shows up as a new row. Panel action / admin API action `forget_clients` (`cid[]`).
+
 ## 1.18.1
 - The admin panel no longer waits for GitHub. When the release list cache had expired (5 minutes, so almost every panel visit), the page itself re-read every release page of every repository before drawing (FluxWP/fluxwp alone is 9 pages, ~5 MB), which held the page for 10-40 s. The panel and the admin API now draw from the cached list and refresh it after the response (`?ajax=releases` in the panel, after the JSON is sent in the API).
 - Release refresh uses a conditional request on the first page of each repository. If nothing changed GitHub answers 304 (not counted against the rate limit) and the cached releases are kept, so a refresh is two small requests instead of a dozen large ones. Each repository is still read in full once an hour, and the webhook and Reload packages still force a full read.

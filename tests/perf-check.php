@@ -130,6 +130,17 @@ try {
 	same( $done['totals']['blocked'], 1, 'A blocked check still folds into the totals' );
 	same( $done['totals']['checks'], 6, 'Folding a download does not recount checks' );
 
+	// Mükerrer kayıt silme: satır ve tekil site sayısı düşer, istek sayısı kalır.
+	same( $stats->forget( array( $id_b, '../bad' ) ), 1, 'Forget removes one known row and ignores bad ids' );
+	$gone = $stats->summary( 7 );
+	same( isset( $gone['clients'][ $id_b ] ), false, 'A forgotten row is not listed' );
+	same( isset( $gone['clients'][ $id_a ] ), true, 'Other rows stay' );
+	same( $gone['totals']['sites'], 1, 'A forgotten row is not counted as an active site' );
+	same( $gone['totals']['checks'], 6, 'Forgetting a row keeps the check totals' );
+	same( $stats->forget( array( $id_b ) ), 0, 'Forgetting twice is a no-op' );
+	$check( $b, 'DE', false );
+	same( isset( $stats->summary( 7 )['clients'][ $id_b ] ), true, 'An install that checks again comes back' );
+
 	$legacy = sys_get_temp_dir() . '/flx-perf-old-' . bin2hex( random_bytes( 4 ) );
 	mkdir( $legacy, 0750, true );
 	$old_id = 'u1234567890abcd';

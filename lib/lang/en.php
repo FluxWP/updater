@@ -391,4 +391,9 @@ return array(
 	'kullanıcıdan' => 'via user',
 	'Henüz cihaz kaydı yok: uygulama ilk güncelleme kontrolünde görünür.' => 'No devices yet: the app shows up on its first update check.',
 	'Beta kullanıcılar (her satıra site#kullanıcıNo, ör. fluxwp.com#1)' => 'Beta users (one site#userID per line, e.g. fluxwp.com#1)',
+	'%d kayıt bağlanan siteler listesinden silindi.' => '%d record(s) removed from connected sites.',
+	'Görünenlerin hepsini seç' => 'Select all shown',
+	'Seç' => 'Select',
+	'Seçilen kayıtlar bağlanan siteler listesinden silinsin mi? Anahtarlar etkilenmez; kurulum yeniden denetlerse yeni satır olarak görünür.' => 'Remove the selected records from connected sites? Keys are not affected; an install that checks again shows up as a new row.',
+	'Seçilenleri listeden sil (%s)' => 'Remove selected from list (%s)',
 );
