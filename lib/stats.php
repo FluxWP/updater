@@ -596,6 +596,54 @@ final class Stats {
 		}
 	}
 
+	/**
+	 * Bağlanan siteler listesinden kayıt siler (ör. yeniden kurulumdan kalan mükerrer satırlar).
+	 * Gün sayaçlarındaki tekil site kümelerinden de çıkarılır; istek sayıları değişmez.
+	 * Kurulum yeniden denetlerse yeni satır olarak döner. Anahtarlara dokunmaz.
+	 *
+	 * @param string[] $ids
+	 * @return int silinen kayıt sayısı
+	 */
+	public function forget( array $ids ): int {
+		$ids = array_values( array_filter( array_map( 'strval', $ids ), static function ( $id ) {
+			return 1 === preg_match( '/^[a-z0-9]{1,64}$/', $id );
+		} ) );
+		if ( ! $ids ) {
+			return 0;
+		}
+		$this->fold();
+		$lock = @fopen( $this->file . '.lock', 'c' );
+		if ( ! $lock ) {
+			return 0;
+		}
+		$n = 0;
+		try {
+			flock( $lock, LOCK_EX );
+			$all = $this->read_file();
+			foreach ( $ids as $id ) {
+				if ( isset( $all['clients'][ $id ] ) ) {
+					unset( $all['clients'][ $id ] );
+					++$n;
+				}
+				foreach ( array_keys( (array) ( $all['days'] ?? array() ) ) as $day ) {
+					unset( $all['days'][ $day ]['s'][ $id ] );
+				}
+			}
+			if ( $n > 0 ) {
+				$tmp  = $this->file . '.' . getmypid() . '.tmp';
+				$json = json_encode( $all, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE );
+				if ( ! is_string( $json ) || false === file_put_contents( $tmp, $json ) || ! rename( $tmp, $this->file ) ) {
+					@unlink( $tmp );
+					return 0;
+				}
+			}
+		} finally {
+			flock( $lock, LOCK_UN );
+			fclose( $lock );
+		}
+		return $n;
+	}
+
 	private function apply_event( array $all, array $ev ): array {
 		$op = (string) ( $ev['op'] ?? '' );
 		if ( 'c' === $op ) {

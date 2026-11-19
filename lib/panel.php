@@ -200,6 +200,7 @@ final class Panel {
 		return array(
 			'github'        => array( __( 'GitHub ayarları kaydedildi.' ), 'ok' ),
 			'deleted'       => array( __( 'Site silindi. O sitenin anahtarı artık çalışmaz.' ), 'ok' ),
+			'forgotten'     => array( _f( '%d kayıt bağlanan siteler listesinden silindi.', (int) ( $q['n'] ?? 0 ) ), 'ok' ),
 			'updated'       => array( __( 'Site güncellendi.' ), 'ok' ),
 			'on'            => array( __( 'Anahtar aktif: site izinli private paketleri yeniden alır.' ), 'ok' ),
 			'off'           => array( __( 'Anahtar pasif: site yalnız public paketleri görür.' ), 'ok' ),
@@ -434,6 +435,13 @@ final class Panel {
 				unset( $sites[ $hash ] );
 				Settings::update( $this->data_dir, array( 'sites' => $sites ) );
 				$this->redirect( 'deleted' );
+				return;
+
+			case 'forget_clients':
+				$ids = array_slice( (array) ( $_POST['cid'] ?? array() ), 0, 500 );
+				$n   = $this->server->stats()->forget( $ids );
+				$this->server_log( 'forget_clients ' . $n );
+				$this->redirect( 'forgotten', array( 'n' => $n ), 'clients' );
 				return;
 
 			case 'gen_manager_key':
@@ -1141,7 +1149,7 @@ table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:8px 6px;
 .muted{color:var(--muted)}.small{font-size:12px}code,pre{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px}
 pre{background:#f6f8f7;border:1px solid var(--line);border-radius:6px;padding:10px;white-space:pre-wrap;word-break:break-all;margin:6px 0}
 .key{background:#fffbe8;border-color:#f0dc9a}
-form.inline{display:inline-block;margin:0}form.give{display:block;margin-top:6px}
+form.inline{display:inline-block;margin:0}th.pick,td.pick{width:28px;text-align:center}form.give{display:block;margin-top:6px}
 .repo-grp{border:1px solid var(--line,#e3e7e4);border-radius:10px;padding:8px 10px;margin:8px 0}.repo-grp .repo-all{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin:0;font-weight:400}
 .repo-grp.whole .checks{opacity:.45;pointer-events:none}tr.off td{opacity:.7}
 .checks{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:4px 12px;margin-top:6px}.checks label{font-weight:400;margin:0;display:flex;gap:6px;align-items:center}
@@ -2198,7 +2206,7 @@ var L = <?php echo json_encode( array(
 				<?php endforeach; ?>
 			</div>
 			<div class="table-wrap"><table>
-				<tr><th><?php echo __( 'Site' ); ?></th><th><?php echo __( 'Erişim' ); ?></th><th><?php echo __( 'Ülke' ); ?></th><th><?php echo __( 'Ortam' ); ?></th><th class="n"><?php echo __( 'Paket' ); ?></th><th class="n"><?php echo __( 'İstek' ); ?></th><th><?php echo __( 'İlk' ); ?></th><th><?php echo __( 'Son' ); ?></th></tr>
+				<tr><th><?php echo __( 'Site' ); ?></th><th><?php echo __( 'Erişim' ); ?></th><th><?php echo __( 'Ülke' ); ?></th><th><?php echo __( 'Ortam' ); ?></th><th class="n"><?php echo __( 'Paket' ); ?></th><th class="n"><?php echo __( 'İstek' ); ?></th><th><?php echo __( 'İlk' ); ?></th><th><?php echo __( 'Son' ); ?></th><th class="pick"><input type="checkbox" id="client-all" aria-label="<?php echo $e( __( 'Görünenlerin hepsini seç' ) ); ?>"></th></tr>
 				<?php
 				$i = 0;
 				foreach ( $S['clients'] as $cid => $c ) :
@@ -2217,9 +2225,14 @@ var L = <?php echo json_encode( array(
 						<td class="n"><?php echo self::n( $c['n'] ?? 0 ); ?></td>
 						<td class="small"><?php echo $e( self::ago( (int) ( $c['first'] ?? 0 ) ) ); ?></td>
 						<td class="small"><?php echo $e( self::ago( (int) ( $c['last'] ?? 0 ) ) ); ?></td>
+						<td class="pick"><input type="checkbox" form="forget-form" name="cid[]" value="<?php echo $e( (string) $cid ); ?>" aria-label="<?php echo $e( __( 'Seç' ) ); ?>"></td>
 					</tr>
 				<?php endforeach; ?>
 			</table></div>
+			<form method="post" id="forget-form" class="row" hidden onsubmit="return confirm(<?php echo $e( json_encode( __( 'Seçilen kayıtlar bağlanan siteler listesinden silinsin mi? Anahtarlar etkilenmez; kurulum yeniden denetlerse yeni satır olarak görünür.' ), JSON_UNESCAPED_UNICODE ) ); ?>)">
+				<?php echo $this->hidden( 'forget_clients' ); ?>
+				<button class="btn danger sm" data-label="<?php echo $e( __( 'Seçilenleri listeden sil (%s)' ) ); ?>"></button>
+			</form>
 			<p id="client-more" hidden><button type="button" class="btn sec sm" data-label="<?php echo $e( __( 'Tümünü göster (%s)' ) ); ?>"></button></p>
 			<script>
 			(function () {
@@ -2247,6 +2260,23 @@ var L = <?php echo json_encode( array(
 					cur = a.getAttribute('data-f'); all = false; apply();
 				});
 				btn.addEventListener('click', function () { all = true; apply(); });
+				var ff = document.getElementById('forget-form'), fb = ff.querySelector('button'), pickAll = document.getElementById('client-all');
+				function picks() { return Array.prototype.slice.call(card.querySelectorAll('input[name="cid[]"]')); }
+				function sync() {
+					var n = picks().filter(function (c) { return c.checked; }).length;
+					ff.hidden = n === 0;
+					fb.textContent = fb.getAttribute('data-label').replace('%s', n);
+				}
+				card.addEventListener('change', function (ev) { if (ev.target && ev.target.name === 'cid[]') sync(); });
+				pickAll.addEventListener('change', function () {
+					picks().forEach(function (c) { if (!c.closest('tr').hidden) c.checked = pickAll.checked; });
+					sync();
+				});
+				tabs.addEventListener('click', function () {
+					pickAll.checked = false;
+					picks().forEach(function (c) { if (c.closest('tr').hidden) c.checked = false; });
+					sync();
+				});
 				apply();
 			})();
 			</script>
