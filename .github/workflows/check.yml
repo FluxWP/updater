@@ -29,3 +29,5 @@ jobs:
         run: php tests/private-move.php
       - name: Package signatures
         run: php tests/signature.php
+      - name: Fresh check revalidation
+        run: php tests/fresh-check.php
