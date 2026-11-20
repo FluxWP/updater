@@ -27,3 +27,5 @@ jobs:
         run: php tests/expo.php
       - name: Private package move regression
         run: php tests/private-move.php
+      - name: Package signatures
+        run: php tests/signature.php

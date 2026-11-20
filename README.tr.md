@@ -149,6 +149,7 @@ Katalog üretme ve yeni ekran çekme akışı ana FluxWP deposunun `tools/readme
 | `GET /v1/health` | durum |
 | `POST /v1/check` | anahtarsız: public paketler; site anahtarıyla: + izinli private paketler. Yanlış anahtar 403 |
 | `GET /v1/download/<slug>/<sürüm>.zip` | public paket anahtarsız, private paket site anahtarıyla; `data/zips`'te saklanır |
+| `GET /v1/download/<slug>/<sürüm>.zip.sig` | O zip'in Ed25519 imzası (GitHub Actions'ın ürettiği `<slug>.zip.sig` asset'i), zip ile aynı erişim; imzasız sürümde 404 `unsigned` |
 | `GET /v1/app/latest?channel=stable\|beta` | herkese açık; uygulamanın son sürümü ve platform dosyaları |
 | `GET /v1/app/download/<tag>/<dosya>` | herkese açık; GitHub'ın kısa ömürlü indirme adresine 302 |
 | `GET /v1/fluxapp/<marka>/latest?channel=stable\|beta` | herkese açık; FluxWP masaüstü son sürümü (dmg, setup.exe, msi + güncelleme paketi) |
