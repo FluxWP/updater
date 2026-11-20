@@ -9,7 +9,7 @@
 
 namespace FLXUpdate;
 
-const VERSION = '1.21.0';
+const VERSION = '1.22.0';
 const DAY_SECONDS = 86400;
 
 class HttpError extends \Exception {
@@ -125,6 +125,10 @@ final class Server {
 			}
 			if ( '/v1/check' === $path ) {
 				$this->route_check( $method );
+				return;
+			}
+			if ( '/v1/announcements' === $path ) {
+				$this->route_announcements();
 				return;
 			}
 			if ( preg_match( '#^/v1/download/([a-z0-9][a-z0-9-]*)/([0-9][0-9A-Za-z.+-]*)\.zip\.sig$#D', $path, $m ) ) {
@@ -301,6 +305,21 @@ final class Server {
 	/* ------------------------------------------------------------------ */
 	/* /v1/check                                                           */
 	/* ------------------------------------------------------------------ */
+
+	/** GET /v1/announcements: yayındaki duyurular (anahtarsız, kısa süre önbelleklenir). Hedefleme site tarafında. */
+	private function route_announcements(): void {
+		$all = Settings::load( $this->data_dir )['announcements'] ?? array();
+		$out = array(
+			'ok'    => true,
+			'v'     => 1,
+			'items' => Announcements::public_list( is_array( $all ) ? $all : array() ),
+		);
+		http_response_code( 200 );
+		header( 'Content-Type: application/json; charset=utf-8' );
+		header( 'Cache-Control: public, max-age=300' );
+		header( 'X-Content-Type-Options: nosniff' );
+		echo json_encode( $out, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE );
+	}
 
 	private function route_check( string $method ): void {
 		$body = array();
