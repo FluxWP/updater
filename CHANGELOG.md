@@ -1,5 +1,8 @@
 # Changelog
 
+## 1.20.0
+- Package signatures: a release asset `<slug>.zip.sig` (Ed25519, made by the package repository's GitHub Actions) is served at `/v1/download/<slug>/<version>.zip.sig` with the same access rules as the zip. `/v1/check` marks each package `signed`. This server cannot sign; it only carries the file, so FluxWP Panel can refuse a zip that a compromised server, panel account or repository list would hand out. An unsigned version answers 404 `unsigned`. The signature is cached next to the zip and removed with it.
+
 ## 1.19.0
 - Connected sites: tick rows and *Remove selected from list* (with confirmation) to drop leftover records, e.g. duplicate `localhost` rows from reinstalled Docker sites. The rows are also removed from the unique-site counts; check totals stay. Keys and pending key handouts are not touched, and an install that checks again shows up as a new row. Panel action / admin API action `forget_clients` (`cid[]`).
 

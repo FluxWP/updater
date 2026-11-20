@@ -9,7 +9,7 @@
 
 namespace FLXUpdate;
 
-const VERSION = '1.19.0';
+const VERSION = '1.20.0';
 const DAY_SECONDS = 86400;
 
 class HttpError extends \Exception {
@@ -122,6 +122,10 @@ final class Server {
 			}
 			if ( '/v1/check' === $path ) {
 				$this->route_check( $method );
+				return;
+			}
+			if ( preg_match( '#^/v1/download/([a-z0-9][a-z0-9-]*)/([0-9][0-9A-Za-z.+-]*)\.zip\.sig$#D', $path, $m ) ) {
+				$this->route_signature( $m[1], $m[2] );
 				return;
 			}
 			if ( preg_match( '#^/v1/download/([a-z0-9][a-z0-9-]*)/(latest|[0-9][0-9A-Za-z.+-]*)\.zip$#', $path, $m ) ) {
@@ -346,6 +350,8 @@ final class Server {
 				'changelog'    => $rel['changelog_html'],
 				'released'     => $rel['published_at'],
 				'size'         => $rel['size'],
+				// Ed25519 imzası var mı: <package>.sig (FluxWP Panel kurmadan önce doğrular).
+				'signed'       => ! empty( $rel['sig_asset_id'] ),
 				'public'       => $this->is_public( $rel ),
 				'versions'     => $versions[ $slug ] ?? array(),
 			) + $this->preview_metadata( $slug, $site, $rel ) + array_intersect_key( CatalogMeta::package( $this->config, $slug ), array_flip( array( 'category', 'order', 'rec' ) ) );
@@ -447,6 +453,69 @@ final class Server {
 		readfile( $file );
 	}
 
+	/* ------------------------------------------------------------------ */
+	/* /v1/download/{slug}/{version}.zip.sig                               */
+	/* ------------------------------------------------------------------ */
+
+	/**
+	 * Paketin Ed25519 imzası (release asset'i <slug>.zip.sig). Erişim kuralı zip'inkiyle aynı.
+	 * İmzayı yalnız GitHub Actions üretir; bu sunucu imzalayamaz, yalnız taşır. İmzasız sürüm 404 "unsigned".
+	 */
+	private function route_signature( string $slug, string $version ): void {
+		$site = $this->auth_site();
+		$this->guard_country( $site );
+		$release = null;
+		$denied  = false;
+		foreach ( $this->releases() as $r ) {
+			if ( $r['slug'] !== $slug || $r['version'] !== $version || ! $r['asset_id'] ) {
+				continue;
+			}
+			if ( $this->can_see( $site, $r ) ) {
+				$release = $r;
+				break;
+			}
+			$denied = true;
+		}
+		if ( ! $release && $denied ) {
+			throw new HttpError( empty( $site['anon'] ) ? 'Package not allowed for this site' : 'Site key required', empty( $site['anon'] ) ? 403 : 401 );
+		}
+		if ( ! $release || ( $release['prerelease'] && 'beta' !== $site['channel'] ) ) {
+			throw new HttpError( 'Version not found', 404 );
+		}
+		if ( empty( $release['sig_asset_id'] ) ) {
+			throw new HttpError( 'This version is not signed', 404, 'unsigned' );
+		}
+		$file = $this->zip_path( $slug, $version ) . '.sig';
+		$body = is_file( $file ) ? (string) file_get_contents( $file ) : '';
+		if ( ! self::valid_signature_file( $body ) ) {
+			$body = $this->github( '/repos/' . $release['repo'] . '/releases/assets/' . (int) $release['sig_asset_id'], 'application/octet-stream', null, empty( $release['public'] ), 4096, 20 );
+			if ( ! self::valid_signature_file( $body ) ) {
+				throw new HttpError( 'Signature file is invalid', 502, 'bad_signature_file' );
+			}
+			$dir = dirname( $file );
+			if ( is_dir( $dir ) || @mkdir( $dir, 0750, true ) ) {
+				$tmp = $file . '.' . getmypid() . '.tmp';
+				if ( false !== @file_put_contents( $tmp, $body ) ) {
+					@rename( $tmp, $file );
+				}
+			}
+		}
+		header( 'Content-Type: application/json' );
+		header( 'Cache-Control: private, no-store' );
+		header( 'X-Content-Type-Options: nosniff' );
+		echo trim( $body );
+	}
+
+	/** {"v":1,"kid":"<16 hex>","sig":"<64 bayt base64>"} biçiminde mi. İçeriği burada doğrulanmaz (anahtar sitede). */
+	public static function valid_signature_file( string $body ): bool {
+		$j = json_decode( trim( $body ), true );
+		if ( ! is_array( $j ) || 1 !== ( $j['v'] ?? null ) || ! preg_match( '/^[a-f0-9]{16}$/', (string) ( $j['kid'] ?? '' ) ) ) {
+			return false;
+		}
+		$sig = base64_decode( (string) ( $j['sig'] ?? '' ), true );
+		return false !== $sig && 64 === strlen( $sig );
+	}
+
 	/**
 	 * Zip önbelleğini sınırlar: paket başına son `zip_keep` sürüm kalır. Daha eski bir sürüm
 	 * istenirse GitHub release'ten yeniden çekilir ve son indirmeden `zip_temp_hours` saat sonra silinir.
@@ -493,6 +562,7 @@ final class Server {
 				$size = (int) @filesize( $f );
 				if ( @unlink( $f ) ) {
 					@unlink( $f . '.lock' );
+					@unlink( $f . '.sig' );
 					++$out['deleted'];
 					$out['bytes'] += $size;
 				}
@@ -2023,10 +2093,12 @@ final class Server {
 		}
 
 		$asset = null;
+		$sig   = null;
 		foreach ( (array) ( $rel['assets'] ?? array() ) as $a ) {
 			if ( ( $a['name'] ?? '' ) === $slug . '.zip' ) {
 				$asset = $a;
-				break;
+			} elseif ( ( $a['name'] ?? '' ) === $slug . '.zip.sig' ) {
+				$sig = $a;
 			}
 		}
 
@@ -2045,6 +2117,7 @@ final class Server {
 			'published_at'   => (string) ( $rel['published_at'] ?? '' ),
 			'asset_id'       => $asset ? (int) $asset['id'] : 0,
 			'size'           => $asset ? (int) $asset['size'] : 0,
+			'sig_asset_id'   => $sig ? (int) $sig['id'] : 0,
 			'changelog_html' => self::markdown( $body ),
 		);
 	}
