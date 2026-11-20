@@ -9,7 +9,7 @@
 
 namespace FLXUpdate;
 
-const VERSION = '1.20.0';
+const VERSION = '1.21.0';
 const DAY_SECONDS = 86400;
 
 class HttpError extends \Exception {
@@ -43,6 +43,9 @@ final class Server {
 
 	/** ETag ile atlanan sayfalar bu süreden eskiyse depo baştan okunur (eski release düzenlemeleri için). */
 	const RELEASE_FULL_TTL = 3600;
+
+	/** /v1/check fresh=1: GitHub'a en çok bu kadar saniyede bir koşullu istek (sunucu geneli). */
+	const FRESH_MIN_AGE = 15;
 
 	public function __construct( array $config ) {
 		$this->config = $config + array(
@@ -329,6 +332,10 @@ final class Server {
 		}
 		$this->guard_country( $site );
 		$this->maybe_prune();
+		// Site "Şimdi kontrol et" dedi: 5 dk önbelleği beklemeden ETag ile yeniden doğrula (en çok 15 sn'de bir).
+		if ( ! empty( $body['fresh'] ) ) {
+			$this->revalidate_releases( self::FRESH_MIN_AGE );
+		}
 
 		$catalog  = $this->catalog( $site['channel'], $site );
 		$versions = $this->versions( $site['channel'], $site );
@@ -1890,6 +1897,26 @@ final class Server {
 		}
 		$cache['at'] = 0;
 		unset( $cache['etags'], $cache['full_at'], $cache['fail_until'] );
+		$this->write_json( $file, $cache );
+	}
+
+	/**
+	 * "Şimdi kontrol et" (/v1/check fresh=1): liste $min_age saniyeden eskiyse süresi geçmiş sayılır,
+	 * ETag'ler KORUNUR. Bir sonraki okuma her depoda koşullu istek yapar: değişiklik yoksa 304
+	 * (GitHub kotasından düşmez), yeni release varsa hemen gelir. $min_age sunucu genelinde alt sınırdır:
+	 * kaç site ya da kaç kez sorarsa sorsun GitHub'a en çok $min_age saniyede bir gidilir.
+	 */
+	public function revalidate_releases( int $min_age = 15 ): void {
+		$file  = $this->data_dir . '/releases.json';
+		$cache = $this->read_json( $file );
+		$sig   = md5( json_encode( $this->repos() ) );
+		if ( ! $this->releases_usable( $cache ) || (string) ( $cache['sig'] ?? '' ) !== $sig || $this->releases_backing_off( $cache, $sig ) ) {
+			return;
+		}
+		if ( (int) ( $cache['at'] ?? 0 ) <= 0 || time() - (int) $cache['at'] < max( 1, $min_age ) ) {
+			return;
+		}
+		$cache['at'] = 0;
 		$this->write_json( $file, $cache );
 	}
 

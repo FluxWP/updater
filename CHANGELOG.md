@@ -1,5 +1,8 @@
 # Changelog
 
+## 1.21.0
+- "Check now" no longer waits out the 5-minute release cache. A `/v1/check` body with `fresh: true` makes the server revalidate the release list (conditional request with the stored ETags: 304 when nothing changed, which does not count against the GitHub rate limit; a new release shows up at once). The limit is server-wide: GitHub is asked at most once every 15 seconds no matter how many sites or clicks, and a repository in back-off is not asked at all. Normal background checks are unchanged.
+
 ## 1.20.0
 - Package signatures: a release asset `<slug>.zip.sig` (Ed25519, made by the package repository's GitHub Actions) is served at `/v1/download/<slug>/<version>.zip.sig` with the same access rules as the zip. `/v1/check` marks each package `signed`. This server cannot sign; it only carries the file, so FluxWP Panel can refuse a zip that a compromised server, panel account or repository list would hand out. An unsigned version answers 404 `unsigned`. The signature is cached next to the zip and removed with it.
 
