@@ -330,6 +330,7 @@ final class AdminApi {
 				'base_url'           => $this->server->base_url(),
 			),
 			'packages' => $packages,
+			'announcements' => array_values( array_filter( (array) ( Settings::load( $this->data_dir )['announcements'] ?? array() ), 'is_array' ) ),
 			'updater_slugs' => Panel::UPDATER_SLUGS,
 			'sites'    => $sites,
 			'claim_days'  => Server::CLAIM_DAYS,
