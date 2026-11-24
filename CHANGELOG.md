@@ -1,5 +1,8 @@
 # Changelog
 
+## 1.22.0
+- Announcements: /admin › Announcements (also through the admin API actions `save_announcement`, `toggle_announcement`, `delete_announcement`) publishes cards that FluxWP Panel sites show on the Flux Admin home page. English and Turkish title, text and button, https link, level, start and end (UTC), optional targeting by plugin and site language. `GET /v1/announcements` is keyless, cached for 5 minutes and lists only live announcements; targeting is applied on the site. The admin API `settings` answer lists all announcements, so another panel (Flux Cloud on fluxwp.com) can manage them.
+
 ## 1.21.0
 - "Check now" no longer waits out the 5-minute release cache. A `/v1/check` body with `fresh: true` makes the server revalidate the release list (conditional request with the stored ETags: 304 when nothing changed, which does not count against the GitHub rate limit; a new release shows up at once). The limit is server-wide: GitHub is asked at most once every 15 seconds no matter how many sites or clicks, and a repository in back-off is not asked at all. Normal background checks are unchanged.
 

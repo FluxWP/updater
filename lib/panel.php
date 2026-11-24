@@ -224,6 +224,9 @@ final class Panel {
 			'ota_beta'      => array( __( 'Beta listesi kaydedildi. Cihaz bir sonraki açılışta beta güncellemesini alır.' ), 'ok' ),
 			'ota_beta_bad'  => array( sprintf( __( 'Beta listesi kaydedildi; okunamayan satırlar atlandı: %s' ), (string) ( $q['bad'] ?? '' ) ), 'err' ),
 			'ota_promoted'  => array( __( 'Beta güncellemesi kararlı kanala alındı. Herkes bir sonraki açılışta alır.' ), 'ok' ),
+			'ann_saved'     => array( __( 'Duyuru kaydedildi.' ), 'ok' ),
+			'ann_bad'       => array( __( 'Duyuru kaydedilmedi: en az bir dilde başlık gerekir.' ), 'err' ),
+			'ann_deleted'   => array( __( 'Duyuru silindi.' ), 'ok' ),
 			'mkey_off'      => array( __( 'Yönetici anahtarı silindi. O anahtarla artık yönetilemez.' ), 'ok' ),
 			'pruned'        => array( sprintf( __( '%d eski zip silindi (%s).' ), (int) ( $q['n'] ?? 0 ), self::size( (int) ( $q['b'] ?? 0 ) ) ), 'ok' ),
 		);
@@ -457,6 +460,12 @@ final class Panel {
 				Settings::update( $this->data_dir, array( 'manager_keys' => $keys ) );
 				$this->server_log( 'manager key added ' . $keys[ hash( 'sha256', $key ) ]['name'] );
 				$this->page( __( 'Panel' ), array( $this, 'view_dashboard' ), array( 'new_manager_key' => $key ) );
+				return;
+
+			case 'save_announcement':
+			case 'toggle_announcement':
+			case 'delete_announcement':
+				$this->do_announcement( $action );
 				return;
 
 			case 'revoke_manager_key':
@@ -995,6 +1004,56 @@ final class Panel {
 		Settings::update( $this->data_dir, array( 'categories' => array_values( $out ) ) );
 		$this->server_log( 'categories saved' );
 		$this->redirect( 'cats', array(), 'categories' );
+	}
+
+	/** Duyuru ekle/düzenle (id varsa), aç-kapat, sil. data/settings.json › announcements. */
+	private function do_announcement( string $action ): void {
+		$id   = (string) ( $_POST['id'] ?? '' );
+		$list = Settings::load( $this->data_dir )['announcements'] ?? array();
+		$list = is_array( $list ) ? $list : array();
+		$at   = null;
+		foreach ( $list as $i => $a ) {
+			if ( is_array( $a ) && '' !== $id && (string) ( $a['id'] ?? '' ) === $id ) {
+				$at = $i;
+			}
+		}
+		if ( 'delete_announcement' === $action ) {
+			if ( null !== $at ) {
+				unset( $list[ $at ] );
+				$this->server_log( 'announcement deleted ' . $id );
+			}
+			Settings::update( $this->data_dir, array( 'announcements' => array_values( $list ) ) );
+			$this->redirect( 'ann_deleted', array(), 'announcements' );
+			return;
+		}
+		if ( 'toggle_announcement' === $action ) {
+			if ( null !== $at ) {
+				$list[ $at ]['on'] = empty( $list[ $at ]['on'] );
+				Settings::update( $this->data_dir, array( 'announcements' => array_values( $list ) ) );
+				$this->server_log( 'announcement ' . ( $list[ $at ]['on'] ? 'on ' : 'off ' ) . $id );
+			}
+			$this->redirect( 'ann_saved', array(), 'announcements' );
+			return;
+		}
+		$row = Announcements::clean( $_POST, null !== $at ? (array) $list[ $at ] : array() );
+		if ( ! $row ) {
+			$this->notice( __( 'Duyuru kaydedilmedi: en az bir dilde başlık gerekir.' ), 'err' );
+			$this->redirect( 'ann_bad', array(), 'announcements' );
+			return;
+		}
+		if ( null === $at && count( $list ) >= Announcements::MAX ) {
+			$this->notice( __( 'En fazla 50 duyuru tutulur; eskilerini silin.' ), 'err' );
+			$this->redirect( '', array(), 'announcements' );
+			return;
+		}
+		if ( null === $at ) {
+			array_unshift( $list, $row );
+		} else {
+			$list[ $at ] = $row;
+		}
+		Settings::update( $this->data_dir, array( 'announcements' => array_values( $list ) ) );
+		$this->server_log( 'announcement saved ' . $row['id'] );
+		$this->redirect( 'ann_saved', array(), 'announcements' );
 	}
 
 	private function do_save_switch(): void {
@@ -1742,6 +1801,7 @@ var L = <?php echo json_encode( array(
 				</form>
 			</div>
 		</div>
+		<?php $this->view_announcements(); ?>
 		<?php $this->view_manager_keys( $args ); ?>
 		<?php $this->view_ota( $args ); ?>
 		<?php
@@ -1885,6 +1945,87 @@ var L = <?php echo json_encode( array(
 	}
 
 	/** Yönetici anahtarları: bu sunucuyu yönetici API'siyle başka bir panelden yöneten anahtarlar. */
+	private function view_announcements(): void {
+		$e    = array( __CLASS__, 'e' );
+		$list = Settings::load( $this->data_dir )['announcements'] ?? array();
+		$list = is_array( $list ) ? array_filter( $list, 'is_array' ) : array();
+		$now  = time();
+		$dt   = static function ( $ts ): string {
+			return $ts ? gmdate( 'Y-m-d\TH:i', (int) $ts ) : '';
+		};
+		$form = function ( array $a ) use ( $e, $dt ) {
+			$g = static function ( $k, $l = '' ) use ( $a ) {
+				return (string) ( 'title' === $k || 'body' === $k || 'cta' === $k ? ( $a[ $k ][ $l ] ?? '' ) : ( $a[ $k ] ?? '' ) );
+			};
+			?>
+			<form method="post" action="#announcements" class="ann-form">
+				<?php echo $this->hidden( 'save_announcement' ); ?>
+				<?php if ( ! empty( $a['id'] ) ) : ?><input type="hidden" name="id" value="<?php echo $e( $a['id'] ); ?>"><?php endif; ?>
+				<div class="row">
+					<label><?php echo __( 'Önem' ); ?>
+						<select name="tone">
+							<?php foreach ( array( 'info' => __( 'Bilgi' ), 'success' => __( 'Yenilik' ), 'warn' => __( 'Uyarı' ), 'critical' => __( 'Önemli' ) ) as $k => $l ) : ?>
+								<option value="<?php echo $e( $k ); ?>"<?php echo ( $a['tone'] ?? 'info' ) === $k ? ' selected' : ''; ?>><?php echo $e( $l ); ?></option>
+							<?php endforeach; ?>
+						</select>
+					</label>
+					<label><input type="checkbox" name="on" value="1"<?php echo ! isset( $a['on'] ) || $a['on'] ? ' checked' : ''; ?>> <?php echo __( 'Yayında' ); ?></label>
+				</div>
+				<div class="grid">
+					<div>
+						<label><?php echo __( 'Başlık (English)' ); ?></label><input type="text" name="title_en" maxlength="120" value="<?php echo $e( $g( 'title', 'en' ) ); ?>">
+						<label><?php echo __( 'Metin (English)' ); ?></label><textarea name="body_en" rows="3" maxlength="600"><?php echo $e( $g( 'body', 'en' ) ); ?></textarea>
+						<label><?php echo __( 'Düğme yazısı (English)' ); ?></label><input type="text" name="cta_en" maxlength="40" value="<?php echo $e( $g( 'cta', 'en' ) ); ?>">
+					</div>
+					<div>
+						<label><?php echo __( 'Başlık (Türkçe)' ); ?></label><input type="text" name="title_tr" maxlength="120" value="<?php echo $e( $g( 'title', 'tr' ) ); ?>">
+						<label><?php echo __( 'Metin (Türkçe)' ); ?></label><textarea name="body_tr" rows="3" maxlength="600"><?php echo $e( $g( 'body', 'tr' ) ); ?></textarea>
+						<label><?php echo __( 'Düğme yazısı (Türkçe)' ); ?></label><input type="text" name="cta_tr" maxlength="40" value="<?php echo $e( $g( 'cta', 'tr' ) ); ?>">
+					</div>
+				</div>
+				<label><?php echo __( 'Bağlantı (https://…)' ); ?></label><input type="url" name="url" maxlength="500" value="<?php echo $e( $g( 'url' ) ); ?>">
+				<div class="grid">
+					<div><label><?php echo __( 'Başlangıç (UTC, boşsa hemen)' ); ?></label><input type="datetime-local" name="starts" value="<?php echo $e( $dt( $a['starts'] ?? 0 ) ); ?>"></div>
+					<div><label><?php echo __( 'Bitiş (UTC, boşsa süresiz)' ); ?></label><input type="datetime-local" name="ends" value="<?php echo $e( $dt( $a['ends'] ?? 0 ) ); ?>"></div>
+				</div>
+				<div class="grid">
+					<div><label><?php echo __( 'Yalnız bu eklentileri kullanan siteler (boşsa hepsi)' ); ?></label><input type="text" name="plugins" placeholder="flx-donate, flx-chat" value="<?php echo $e( implode( ', ', (array) ( $a['plugins'] ?? array() ) ) ); ?>"></div>
+					<div><label><?php echo __( 'Yalnız bu site dilleri (boşsa hepsi)' ); ?></label><input type="text" name="langs" placeholder="tr, en" value="<?php echo $e( implode( ', ', (array) ( $a['langs'] ?? array() ) ) ); ?>"></div>
+				</div>
+				<p><button class="btn sm"><?php echo empty( $a['id'] ) ? __( 'Duyuru ekle' ) : __( 'Kaydet' ); ?></button></p>
+			</form>
+			<?php
+		};
+		?>
+		<div class="card" id="announcements">
+			<h2><?php echo __( 'Duyurular' ); ?></h2>
+			<p class="small muted"><?php echo __( 'FluxWP Panel\'li sitelerin Flux Admin ana sayfasında kapatılabilir kart olarak görünür. Metin düz metindir; bağlantı https olmalıdır. Kullanıcı kartı kapatınca bir daha o kullanıcıya gösterilmez. Yayın adresi:' ); ?> <code><?php echo $e( $this->server->base_url() . '/v1/announcements' ); ?></code></p>
+			<?php foreach ( $list as $a ) : ?>
+				<?php
+				$live  = ! empty( $a['on'] ) && ( ! (int) ( $a['starts'] ?? 0 ) || $now >= (int) $a['starts'] ) && ( ! (int) ( $a['ends'] ?? 0 ) || $now < (int) $a['ends'] );
+				$title = (string) ( ( $a['title']['tr'] ?? '' ) ?: ( $a['title']['en'] ?? '' ) );
+				?>
+				<details class="ann-row">
+					<summary>
+						<b><?php echo $e( $title ); ?></b>
+						<span class="pill <?php echo $live ? 'ok' : 'muted'; ?>"><?php echo $live ? __( 'Yayında' ) : ( empty( $a['on'] ) ? __( 'Kapalı' ) : __( 'Zamanlanmış / bitti' ) ); ?></span>
+						<span class="pill muted"><?php echo $e( (string) ( $a['tone'] ?? 'info' ) ); ?></span>
+					</summary>
+					<?php $form( $a ); ?>
+					<div class="row">
+						<form method="post" action="#announcements" class="inline"><?php echo $this->hidden( 'toggle_announcement' ); ?><input type="hidden" name="id" value="<?php echo $e( $a['id'] ); ?>"><button class="btn sec sm"><?php echo empty( $a['on'] ) ? __( 'Yayına al' ) : __( 'Yayından kaldır' ); ?></button></form>
+						<form method="post" action="#announcements" class="inline" onsubmit="return confirm(<?php echo $e( json_encode( __( 'Bu duyuru silinsin mi?' ), JSON_UNESCAPED_UNICODE ) ); ?>)"><?php echo $this->hidden( 'delete_announcement' ); ?><input type="hidden" name="id" value="<?php echo $e( $a['id'] ); ?>"><button class="btn danger sm"><?php echo __( 'Sil' ); ?></button></form>
+					</div>
+				</details>
+			<?php endforeach; ?>
+			<details class="ann-row"<?php echo $list ? '' : ' open'; ?>>
+				<summary><b><?php echo __( 'Yeni duyuru' ); ?></b></summary>
+				<?php $form( array() ); ?>
+			</details>
+		</div>
+		<?php
+	}
+
 	private function view_manager_keys( array $args ): void {
 		$e    = array( __CLASS__, 'e' );
 		$keys = AdminApi::keys( $this->data_dir );
@@ -2065,7 +2206,7 @@ var L = <?php echo json_encode( array(
 		$base  = $this->server->base_url() . '/admin';
 		?>
 		<nav class="tabs-nav">
-			<a href="#usage"><?php echo __( 'Genel bakış' ); ?></a><a href="#countries"><?php echo __( 'Ülkeler' ); ?></a><a href="#resources"><?php echo __( 'Kaynaklar' ); ?></a><a href="#security"><?php echo __( 'Güvenlik' ); ?></a><a href="#settings"><?php echo __( 'Ayarlar' ); ?></a><a href="#keys"><?php echo __( 'Anahtarlı siteler' ); ?></a><a href="#packages"><?php echo __( 'Paketler' ); ?></a><a href="#categories"><?php echo __( 'Kategoriler' ); ?></a><a href="#manager"><?php echo __( 'Yönetici API' ); ?></a>
+			<a href="#usage"><?php echo __( 'Genel bakış' ); ?></a><a href="#countries"><?php echo __( 'Ülkeler' ); ?></a><a href="#resources"><?php echo __( 'Kaynaklar' ); ?></a><a href="#security"><?php echo __( 'Güvenlik' ); ?></a><a href="#settings"><?php echo __( 'Ayarlar' ); ?></a><a href="#keys"><?php echo __( 'Anahtarlı siteler' ); ?></a><a href="#packages"><?php echo __( 'Paketler' ); ?></a><a href="#categories"><?php echo __( 'Kategoriler' ); ?></a><a href="#announcements"><?php echo __( 'Duyurular' ); ?></a><a href="#manager"><?php echo __( 'Yönetici API' ); ?></a>
 		</nav>
 		<div class="sec-head" id="usage">
 			<h2 class="sec"><?php echo __( 'Genel bakış' ); ?></h2>
